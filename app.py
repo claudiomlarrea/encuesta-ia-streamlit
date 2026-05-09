@@ -861,9 +861,15 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         options=all_analysis_cols,
                         key="clust_feat",
                         format_func=_fmt_analysis_col,
+                        help="Podés usar **una** variable (segmentación 1D: p. ej. acceso sí/no o Likert) o varias para perfiles multivariados.",
                     )
                     mode = st.radio("Algoritmo", ["K-means", "DBSCAN", "Jerárquico (dendrograma)"], horizontal=True)
-                    if len(feat_c) >= 2:
+                    if len(feat_c) == 1:
+                        st.caption(
+                            "**Una sola variable:** el clúster opera en **una dimensión** (la codificación ordinal o dummies de esa columna). "
+                            "Tiene sentido para cortar la muestra en grupos a lo largo de ese eje; agregá más variables si buscás perfiles **multivariados**."
+                        )
+                    if len(feat_c) >= 1:
                         Xf, expl = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
                         st.caption("Codificación: " + " | ".join(f"{k[:40]}: {v}" for k, v in list(expl.items())[:6]))
                         if Xf.empty:
@@ -915,7 +921,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     )
                                 )
                     else:
-                        st.info("Elegí al menos dos variables.")
+                        st.info("Elegí al menos **una** variable para segmentar.")
         
             # --- Predictivos ---
             if "7. Predictivos + SHAP" in Q:
