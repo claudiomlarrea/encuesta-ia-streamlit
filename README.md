@@ -23,4 +23,5 @@ Por defecto `.gitignore` excluye `*.xlsx`. Versioná sólo datos anonimizados o 
 ## Protocolo estadístico en la app
 
 - **Ítems invertidos:** marcálos en el expander de la pestaña cuantitativa (misma convención antes de ver resultados).
+- **4 vs 5 categorías:** el codificador elige texto Likert/Frec **de cuatro o cinco niveles** según la cobertura; la inversión usa el rango observado por columna.
 - **Policórico + R:** en *PCA / AFE* podés descargar `cor_poly.csv` y copiar el ejemplo `lavaan` (revisá estimadores y muestra según tu diseño).

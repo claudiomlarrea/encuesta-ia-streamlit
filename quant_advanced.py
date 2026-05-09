@@ -54,6 +54,32 @@ FREQ_SCORE = {
     "siempre": 5,
 }
 
+# Likert sin categoría neutra (forma frecuente en Google Forms reducido)
+LIKERT_SCORE_FOUR = {
+    "totalmente en desacuerdo": 1,
+    "en desacuerdo": 2,
+    "de acuerdo": 3,
+    "totalmente de acuerdo": 4,
+    "completamente de acuerdo": 4,
+    "bastante en desacuerdo": 1,
+    "bastante de acuerdo": 4,
+}
+
+# Escalas de frecuencia con 4 alternativas (sin “frecuentemente” / sin “rara vez” según instrumento)
+FREQ_SCORE_FOUR_A = {
+    "nunca": 1,
+    "rara vez": 2,
+    "a veces": 3,
+    "siempre": 4,
+}
+
+FREQ_SCORE_FOUR_B = {
+    "nunca": 1,
+    "a veces": 2,
+    "frecuentemente": 3,
+    "siempre": 4,
+}
+
 
 def normalize_text(x: Any) -> str:
     if pd.isna(x):
@@ -74,24 +100,120 @@ def series_to_freq_numeric(s: pd.Series) -> pd.Series:
     return pd.to_numeric(mapped, errors="coerce")
 
 
+def series_to_likert_four_numeric(s: pd.Series) -> pd.Series:
+    mapped = s.map(lambda v: LIKERT_SCORE_FOUR.get(normalize_text(v)) if normalize_text(v) else np.nan)
+    return pd.to_numeric(mapped, errors="coerce")
+
+
+def series_to_freq_four_numeric_best(s: pd.Series) -> tuple[pd.Series, str]:
+    a = s.map(lambda v: FREQ_SCORE_FOUR_A.get(normalize_text(v)) if normalize_text(v) else np.nan)
+    a = pd.to_numeric(a, errors="coerce")
+    b = s.map(lambda v: FREQ_SCORE_FOUR_B.get(normalize_text(v)) if normalize_text(v) else np.nan)
+    b = pd.to_numeric(b, errors="coerce")
+    ok_a = a.notna().mean()
+    ok_b = b.notna().mean()
+    if ok_a >= ok_b:
+        return a, "Frecuencia (4 niveles, variante N–R–A–S)"
+    return b, "Frecuencia (4 niveles, variante N–A–F–S)"
+
+
 def detect_best_ordinal(series: pd.Series, min_cover: float = 0.55) -> tuple[pd.Series, str]:
     """
-    Intenta Likert → frecuencia. Retorna Serie numérica y etiqueta del esquema, o valores vacíos si no aplica.
+    Likert (5 ó 4 niveles texto) ↔ frecuencia (5 ó 4). Elige el esquema con mayor cobertura;
+    ante empate se prioriza la escala con más niveles si la cobertura es igual.
     """
-    lk = series_to_likert_numeric(series)
-    fr = series_to_freq_numeric(series)
-    lk_ok = lk.notna().mean()
-    fr_ok = fr.notna().mean()
-    if lk_ok >= min_cover and lk_ok >= fr_ok:
-        return lk, "Likert"
-    if fr_ok >= min_cover:
-        return fr, "frecuencia"
-    # intento menor umbral sólo Likert/Freq en competencia con ambos bajos
-    if lk_ok >= 0.35 and lk_ok >= fr_ok:
-        return lk, "Likert (parcial)"
-    if fr_ok >= 0.35:
-        return fr, "frecuencia (parcial)"
+    lk5 = series_to_likert_numeric(series)
+    lk4 = series_to_likert_four_numeric(series)
+    fr5 = series_to_freq_numeric(series)
+    fr4, fr4_lab = series_to_freq_four_numeric_best(series)
+
+    lk5_ok = lk5.notna().mean()
+    lk4_ok = lk4.notna().mean()
+    lk5_nm = lk5.dropna()
+    if len(lk5_nm):
+        uniq5 = tuple(sorted({int(round(float(x))) for x in lk5_nm.unique()}))
+        # Tipico error al forzar texto de 4 categorías dentro de etiquetas tipo Likert-5:
+        # ausencia total de la opción neutra → valores {1,2,4,5}. Preferimos escalado 4 puntos coherentes {1–4}.
+        if uniq5 == (1, 2, 4, 5) and lk4_ok + 1e-3 >= lk5_ok:
+            lab4 = (
+                "Likert (4 niveles texto)"
+                if lk4_ok >= min_cover
+                else ("Likert (4 niveles texto) (parcial)" if lk4_ok >= max(0.28, min_cover * 0.65) else None)
+            )
+            if lab4:
+                return lk4, lab4
+
+    candidates: list[tuple[float, pd.Series, str]] = [
+        (lk5_ok, lk5, "Likert (5 niveles texto)"),
+        (lk4_ok, lk4, "Likert (4 niveles texto)"),
+        (fr5.notna().mean(), fr5, "Frecuencia (5 niveles texto)"),
+        (fr4.notna().mean(), fr4, fr4_lab),
+    ]
+
+    def _tier(label: str) -> int:
+        if "Likert (5" in label:
+            return 4
+        if "Frecuencia (5" in label:
+            return 3
+        if "Likert (4" in label:
+            return 2
+        return 1  # cualquier freq 4
+
+    eligible = [(r, ser, lb) for r, ser, lb in candidates if r >= min_cover]
+    if eligible:
+        eligible.sort(key=lambda x: (-x[0], -_tier(x[2])))
+        return eligible[0][1], eligible[0][2]
+
+    partial_min = max(0.28, min_cover * 0.65)
+    part = [(r, ser, lb) for r, ser, lb in candidates if r >= partial_min]
+    if part:
+        part.sort(key=lambda x: (-x[0], -_tier(x[2])))
+        ser, lb = part[0][1], part[0][2]
+        return ser, lb + " (parcial)"
+
     return pd.Series([np.nan] * len(series), index=series.index), "no ordinal"
+
+
+def ordinal_scaling_report(mat: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Resume amplitudes ordinales por columna útil cuando mezclas escalas 4 y 5 categorías."""
+    msgs: list[str] = []
+    rows: list[dict[str, Any]] = []
+    for c in mat.columns:
+        v = mat[c].dropna().astype(float)
+        if len(v) == 0:
+            rows.append(dict(ítem=column_key_short(str(c)), niveles_obs=0, mín=np.nan, máx=np.nan, anchura_obs=np.nan))
+            continue
+        uq = sorted(np.unique(v.values))
+        k = len(uq)
+        lo, hi = float(uq[0]), float(uq[-1])
+        rows.append(
+            dict(
+                ítem=column_key_short(str(c)),
+                niveles_obs=int(k),
+                mín=float(lo),
+                máx=float(hi),
+                anchura_obs=float(round(hi - lo, 4)),
+            )
+        )
+    table = pd.DataFrame(rows)
+
+    nonempty = table[table["niveles_obs"] > 0]
+    ks = sorted(int(x) for x in nonempty["niveles_obs"].astype(int).unique().tolist())
+    amps = sorted({round(float(x), 4) for x in nonempty["anchura_obs"].dropna().tolist()})
+
+    if len(ks) > 1:
+        msgs.append(
+            "Detectamos **ítems con distinta cantidad de categorías utilizadas en los datos** ("
+            f"{', '.join(str(x) for x in ks)} niveles observados).\n\n"
+            "La correlación policórica y modelos típicos de ítems **ordenados suelen poder combinar diferentes K**. "
+            "En cambio, el **alfa de Cronbach** clásico asume mismas métricas y misma tabla de opciones dentro del conjunto seleccionado: "
+            "reportalo por **subescalas homogéneas** cuando conviene inferencia de fiabilidad estricta."
+        )
+    elif len(amps) > 1:
+        msgs.append(
+            "Las anchuras ordinal observadas (**máx − mín**) no coinciden entre columnas — revisá cómo combinás ítems en el Alfa y los factores."
+        )
+    return table, msgs
 
 
 def descriptive_one_column(series: pd.Series, inverted: bool = False) -> dict[str, Any]:

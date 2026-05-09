@@ -28,6 +28,7 @@ from quant_advanced import (
     lavaan_export_snippet,
     likert_numeric_matrix,
     optional_sem_estimate,
+    ordinal_scaling_report,
     pca_loadings_from_correlation_matrix,
     polychoric_correlation_matrix,
     prepare_feature_matrix,
@@ -224,7 +225,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         with st.expander("Protocolo estadístico: ítems con formulación invertida", expanded=False):
             st.markdown(
                 "Seleccioná **antes** del análisis las columnas Likert formuladas en sentido contrario "
-                "(p. ej. riesgos o impedimentos). Se aplica \\(mín+máx-x\\) dentro del rango observado de cada ítem."
+                "(p. ej. riesgos o impedimentos). Se aplica \\(mín+máx-x\\) con **mín y máx propios por ítem** "
+                "(válido si mezclas escalas de **4 vs 5** categorías o anchuras distintas)."
             )
             invert_pick = st.multiselect(
                 "Invertir estos ítems en escalas codificadas",
@@ -380,8 +382,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 if len(mat) < 20:
                     st.warning("Muy pocos casos completos tras listwise deletion.")
                 else:
+                    rep_cron, warns_cron = ordinal_scaling_report(mat)
+                    st.markdown("##### Escala efectiva por ítem")
+                    st.dataframe(rep_cron, use_container_width=True, hide_index=True)
+                    for w in warns_cron:
+                        st.info(w)
                     alpha = cronbach_alpha(mat)
-                    st.metric("Alfa de Cronbach", f"{alpha:.3f}", help="Valores >0.7 suelen considerarse aceptables (regla orientativa).")
+                    st.metric(
+                        "Alfa de Cronbach",
+                        f"{alpha:.3f}",
+                        help="Con mezclas 4 vs 5 categorías interpretá con cautela si no pertenecen al mismo bloque teórico.",
+                    )
                     st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
                     st.dataframe(mat.describe().T, use_container_width=True)
             else:
@@ -422,6 +433,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     key="slider_efa_factors",
                 )
                 Xnum = likert_numeric_matrix(df_work, items_p, inverted_cols=invert_set).dropna(how="any")
+                rep_pca, warns_pca = ordinal_scaling_report(Xnum)
+                st.markdown("##### Escala efectiva por ítem (mezclas 4 vs 5 categorías)")
+                st.dataframe(rep_pca, use_container_width=True, hide_index=True)
+                for w in warns_pca:
+                    st.info(w)
                 if len(Xnum) < 40:
                     st.warning("Necesitas más observaciones completas para factores estables.")
                 else:
@@ -599,7 +615,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         with s9:
             st.markdown(
                 """
-**Protocolo de ítems invertidos:** documentá y marcá en el expander superior las columnas con redacción invertida; el mismo criterio se aplica a Alfa, factores, CFA, comparaciones y segmentación.
+**Protocolo de ítems invertidos:** documentá y marcá en el expander superior las columnas con redacción invertida; el mismo criterio se aplica a Alfa, factores, CFA, comparaciones y segmentación (con **min/max por ítem**, compatible con mezclas 4 vs 5 categorías).
+
+**Escalas 4 vs 5 categorías:** el motor compara etiquetas texto Likert **de cuatro y cinco niveles** (y variantes cortas de frecuencias) y elige la mejor cobertura; en Cronbach/AFE verás una **tabla de diagnóstico** si combinás ítems heterogéneos.
 
 **Policórico + lavaan:** PCA y AFE pueden basarse en **`semopy.polycorr.hetcor`** (matriz semi‑definida proyectada con `corr_nearest`). El CSV `cor_poly.csv` y el ejemplo de **lavaan** son orientativos — validá `sample.nobs` (= casos tras listwise deletion) y el tipo de estimador (p. ej. WLSMV con `ordered`) con tu asesor estadístico.
 
