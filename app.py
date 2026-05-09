@@ -8,6 +8,7 @@ import io
 from typing import Any
 
 _HAS_SEMOPY = importlib.util.find_spec("semopy") is not None
+_HAS_TRANSFORMERS = importlib.util.find_spec("transformers") is not None
 
 import pandas as pd
 import plotly.express as px
@@ -49,7 +50,9 @@ from survey_intel import (
     explode_multiselect,
     frequency_table,
     is_timestamp_column,
+    kwic_snippets,
     lexicon_sentiment_es,
+    ngram_top_table,
     thematic_nmf,
 )
 
@@ -161,8 +164,14 @@ def main() -> None:
 
         toggle_hf = st.toggle(
             "Usar modelo de sentimiento robertuito (transformers)",
-            value=True,
-            help="Primera ejecución descarga pesos (~400 MB). Si falla o es lento, desactivalo y usa el léxico español incluido.",
+            value=_HAS_TRANSFORMERS,
+            disabled=not _HAS_TRANSFORMERS,
+            help=(
+                "Sólo disponible si el servidor tiene `transformers`+`torch` (instalación local con requirements-full). "
+                "En Streamlit Cloud suele faltar: se usa léxico sin aviso de error."
+                if not _HAS_TRANSFORMERS
+                else "Primera ejecución descarga pesos (~400 MB). Podés desactivar y usar el léxico."
+            ),
         )
         topic_k = st.slider("Cantidad de temas (NMF)", 3, 10, 5)
 
@@ -763,7 +772,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         
     if "Análisis cualitativo" in T_main:
         with T_main["Análisis cualitativo"]:
-            st.subheader("Temas + sentimiento (respuestas abiertas)")
+            st.subheader("Respuestas abiertas: temas, tono y lectura del discurso")
+            st.caption(
+                "El **análisis temático** profundo y el **análisis de discurso** (en sentido escolar) son "
+                "interpretativos y suelen exigir codificación. Acá tenés **apoyos automáticos** (NMF, n‑gramas, concordancias) "
+                "y polaridad por léxico o modelo neuronal si está instalado."
+            )
             if not open_items:
                 st.warning("No hay columnas marcadas como abiertas con datos.")
             else:
@@ -773,64 +787,140 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     format_func=lambda x: next(p.short_name for p in open_items if p.name == x),
                 )
                 texts = df[oc].dropna().astype(str).tolist()
-    
+
                 filtered = [t.strip() for t in texts if len(t.strip()) > 4]
-    
-                results: list[str] = []
-                hf_ok = False
-                if toggle_hf:
-                    try:
-                        _load_sentiment_pipeline()
-                        preds = SentimentModel.predict_batch(filtered)
-                        for pred in preds:
-                            label_raw = pred.get("label", "NEU")
-                            results.append(SentimentModel.map_label(str(label_raw)))
-                        hf_ok = len(results) == len(filtered)
-                    except Exception as e:
-                        st.warning(
-                            "No se pudo usar el modelo Hugging Face; se usará el léxico en español. "
-                            f"Detalle: {e}"
-                        )
-                if not hf_ok or len(results) != len(filtered):
-                    results = [lexicon_sentiment_es(t)[0] for t in filtered]
-    
-                dist = pd.Series(results).value_counts().rename_axis("sentimiento").reset_index(name="n")
-                dist["pct"] = (dist["n"] / dist["n"].sum() * 100).round(1)
-    
-                cc1, cc2 = st.columns(2)
-                with cc1:
-                    st.markdown("### Distribución de sentimiento")
-                    st.dataframe(dist, hide_index=True, use_container_width=True)
-                    fig2 = px.pie(dist, names="sentimiento", values="n", hole=0.35)
-                    st.plotly_chart(fig2, use_container_width=True)
-    
-                topics, _W = thematic_nmf(filtered, n_topics=topic_k)
-                with cc2:
-                    st.markdown("### Temas (NMF + TF‑IDF)")
-                    if topics:
-                        st.dataframe(pd.DataFrame(topics), hide_index=True, use_container_width=True)
-                    else:
-                        st.caption("Pocos textos o vocabulario muy disperso para extraer temas estables.")
-    
-                with st.expander("Ejemplos por sentimiento"):
-                    samp = pd.DataFrame({"texto": filtered, "sentimiento": results})
-                    for lab in ["positivo", "neutral", "negativo"]:
-                        pool = samp.loc[samp["sentimiento"] == lab, "texto"]
-                        if pool.empty:
-                            continue
-                        k = min(5, len(pool))
-                        sub = pool.sample(k, random_state=1)
-                        st.markdown(f"**{lab.capitalize()}**")
-                        for row in sub:
-                            st.write(f"- {row[:400]}…" if len(row) > 400 else f"- {row}")
-    
-                out = pd.DataFrame({"texto": filtered, "sentimiento": results})
-                st.download_button(
-                    "Descargar clasificación de sentimiento (CSV)",
-                    data=out.to_csv(index=False).encode("utf-8"),
-                    file_name="sentimiento_abiertas.csv",
-                    mime="text/csv",
+
+                qa1, qa2, qa3 = st.tabs(
+                    [
+                        "1. Análisis temático (NMF)",
+                        "2. Sentimiento",
+                        "3. Discurso y vocabulario",
+                    ]
                 )
+
+                with qa1:
+                    st.markdown("##### Exploración temática (NMF + TF‑IDF)")
+                    st.caption(
+                        "Agrupa palabras que co‑ocurren; **etiquetá vos** cada tema para el informe. "
+                        "Revisá las citas debajo de cada tema."
+                    )
+                    topics, _W, dominant, quotes, texts_nmf = thematic_nmf(filtered, n_topics=topic_k)
+                    if topics:
+                        st.dataframe(pd.DataFrame(topics), use_container_width=True, hide_index=True)
+                        dom_ser = pd.Series(dominant, name="tema_asignado")
+                        st.markdown("###### Frecuencia de respuestas por tema (dominante)")
+                        st.bar_chart(dom_ser.value_counts().sort_index())
+                        st.caption(f"Respuestas incluidas en el modelo: **{len(texts_nmf)}** (se excluyen vacías o demasiado cortas).")
+                        for tid, exs in quotes.items():
+                            with st.expander(f"Tema {tid} — palabras clave y citas representativas"):
+                                kw = next((t["palabras_clave"] for t in topics if t["tema"] == tid), "")
+                                if kw:
+                                    st.caption(kw)
+                                for j, ex in enumerate(exs, 1):
+                                    st.markdown(f"**{j}.** {ex[:520]}{'…' if len(ex) > 520 else ''}")
+                        st.download_button(
+                            "Descargar asignación tentativa tema→respuesta (CSV)",
+                            data=pd.DataFrame({"texto": texts_nmf, "tema_dominante_nmf": dominant})
+                            .to_csv(index=False)
+                            .encode("utf-8"),
+                            file_name="temas_nmf_por_respuesta.csv",
+                            mime="text/csv",
+                        )
+                    else:
+                        st.info(
+                            "No se extrajeron temas estables: pocas respuestas largas, texto muy repetido o "
+                            "vocabulario demasiado disperso. Probá más respuestas o bajá la cantidad de temas en la barra lateral."
+                        )
+
+                with qa2:
+                    st.markdown("##### Polaridad / tono (orientativo)")
+                    if not _HAS_TRANSFORMERS:
+                        st.info(
+                            "En este servidor **no está instalado** `transformers` (típico en Streamlit Community Cloud). "
+                            "La polaridad usa el **léxico en español** integrado. Para RoBERTuito instala dependencias pesadas en local: "
+                            "`pip install -r requirements-full.txt`."
+                        )
+                    results: list[str] = []
+                    hf_ok = False
+                    if toggle_hf and _HAS_TRANSFORMERS:
+                        try:
+                            _load_sentiment_pipeline()
+                            preds = SentimentModel.predict_batch(filtered)
+                            for pred in preds:
+                                label_raw = pred.get("label", "NEU")
+                                results.append(SentimentModel.map_label(str(label_raw)))
+                            hf_ok = len(results) == len(filtered)
+                        except Exception as e:
+                            st.warning(
+                                "No se pudo usar el modelo Hugging Face; se usará el léxico en español. "
+                                f"Detalle: {e}"
+                            )
+                    if not hf_ok or len(results) != len(filtered):
+                        results = [lexicon_sentiment_es(t)[0] for t in filtered]
+
+                    dist = pd.Series(results).value_counts().rename_axis("sentimiento").reset_index(name="n")
+                    dist["pct"] = (dist["n"] / dist["n"].sum() * 100).round(1)
+
+                    c_sent1, c_sent2 = st.columns(2)
+                    with c_sent1:
+                        st.dataframe(dist, use_container_width=True, hide_index=True)
+                        fig2 = px.pie(dist, names="sentimiento", values="n", hole=0.35)
+                        st.plotly_chart(fig2, use_container_width=True)
+                    with c_sent2:
+                        with st.expander("Ejemplos aleatorios por tono (léxico o modelo)"):
+                            samp = pd.DataFrame({"texto": filtered, "sentimiento": results})
+                            for lab in ["positivo", "neutral", "negativo"]:
+                                pool = samp.loc[samp["sentimiento"] == lab, "texto"]
+                                if pool.empty:
+                                    continue
+                                k = min(5, len(pool))
+                                sub = pool.sample(k, random_state=1)
+                                st.markdown(f"**{lab.capitalize()}**")
+                                for row in sub:
+                                    st.write(f"- {row[:400]}…" if len(row) > 400 else f"- {row}")
+
+                    out = pd.DataFrame({"texto": filtered, "sentimiento": results})
+                    st.download_button(
+                        "Descargar clasificación de sentimiento (CSV)",
+                        data=out.to_csv(index=False).encode("utf-8"),
+                        file_name="sentimiento_abiertas.csv",
+                        mime="text/csv",
+                    )
+
+                with qa3:
+                    st.markdown("##### Apoyos para lectura del discurso")
+                    st.caption(
+                        "Bigramas/trigramas y **concordancias** (KWIC) sirven para ver patrones léxicos; "
+                        "no constituyen por sí solos un análisis de discurso epistémico completo."
+                    )
+                    g1, g2 = st.columns(2)
+                    bi = ngram_top_table(filtered, ngram_range=(2, 2), top_n=40)
+                    tri = ngram_top_table(filtered, ngram_range=(3, 3), top_n=35)
+                    with g1:
+                        st.markdown("**Bigramas frecuentes**")
+                        if bi.empty:
+                            st.caption("Sin bigramas repetidos suficientes.")
+                        else:
+                            st.dataframe(bi, use_container_width=True, hide_index=True)
+                    with g2:
+                        st.markdown("**Trigramas frecuentes**")
+                        if tri.empty:
+                            st.caption("Sin trigramas repetidos suficientes.")
+                        else:
+                            st.dataframe(tri, use_container_width=True, hide_index=True)
+
+                    needle = st.text_input(
+                        "Buscar palabra o frase (concordancias en contexto)",
+                        placeholder="ej. plagio, copiar, ética, miedo",
+                    )
+                    if needle.strip():
+                        hits = kwic_snippets(filtered, needle.strip(), max_hits=35)
+                        if not hits:
+                            st.caption("Sin coincidencias (probá otra forma o menos caracteres).")
+                        else:
+                            st.markdown(f"**Coincidencias ({len(hits)})**")
+                            for h in hits:
+                                st.markdown(f"- {h}")
 
     if "Guía metodológica" in T_main:
         with T_main["Guía metodológica"]:
@@ -850,8 +940,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
 ### Análisis cualitativos en esta app
 
-- **Temático automático (NMF)**: agrupa palabras frecuentes co‑ocurrentes; sirve para una primera lectura, no reemplaza codificación cualitativa rigurosa.
-- **Sentimiento**: modelo **RoBERTuito** (`pysentimiento/robertuito-sentiment-analysis`) entrenado en español social; modo respaldo por **léxico** si no hay GPU o falla la descarga.
+- **Temático (NMF)**: temas exploratorios, frecuencias por tema y citas; descarga CSV de asignación tentativa. No reemplaza codificación manual ni categorías teóricas.
+- **Sentimiento**: **RoBERTuito** si instalás `transformers`+`torch` (local / `requirements-full`); en Cloud suele usarse sólo **léxico** en español.
+- **Discurso y vocabulario**: bigramas/trigramas y concordancias KWIC como apoyo a la lectura; un análisis de discurso pleno sigue siendo trabajo interpretativo fuera de la app.
 
 ### Próximo paso sugerido
 

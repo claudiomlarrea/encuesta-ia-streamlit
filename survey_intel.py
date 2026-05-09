@@ -10,7 +10,7 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 from sklearn.decomposition import NMF
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 
 # --- Clasificación estructurada vs abierta ---
@@ -269,17 +269,27 @@ def frequency_table(series: pd.Series, top_n: int = 25) -> pd.DataFrame:
     return out
 
 
-def thematic_nmf(texts: list[str], n_topics: int = 5, max_features: int = 2000) -> tuple[list[dict[str, Any]], np.ndarray]:
+def thematic_nmf(
+    texts: list[str], n_topics: int = 5, max_features: int = 2000
+) -> tuple[list[dict[str, Any]], np.ndarray, list[int], dict[int, list[str]], list[str]]:
     """
     Temas vía NMF + TF‑IDF (exploratorio, no sustituye codificación manual).
+    Devuelve tablas de temas, matriz W, tema dominante por respuesta (1..K), citas por tema, y la lista de textos alineada con esos índices.
     """
     clean = [t.strip() for t in texts if t and len(t.strip()) > 3]
+    empty_ret: tuple[list[dict[str, Any]], np.ndarray, list[int], dict[int, list[str]], list[str]] = (
+        [],
+        np.array([]),
+        [],
+        {},
+        [],
+    )
     if len(clean) < max(10, n_topics * 5):
-        return [], np.array([])
+        return empty_ret
 
     n_topics = min(n_topics, len(clean) // 3, 12)
     if n_topics < 2:
-        return [], np.array([])
+        return empty_ret
 
     def _preprocess(t: str) -> str:
         toks = re.findall(r"[\wáéíóúñü]{3,}", t.lower())
@@ -287,12 +297,13 @@ def thematic_nmf(texts: list[str], n_topics: int = 5, max_features: int = 2000) 
 
     processed = [_preprocess(t) for t in clean]
     if not any(processed):
-        return [], np.array([])
+        return empty_ret
 
-    vectorizer = TfidfVectorizer(max_df=0.85, min_df=2, max_features=max_features)
+    min_df_eff = 2 if len(clean) >= 40 else 1
+    vectorizer = TfidfVectorizer(max_df=0.9, min_df=min_df_eff, max_features=max_features)
     X = vectorizer.fit_transform(processed)
     if X.shape[1] < 5:
-        return [], np.array([])
+        return empty_ret
 
     nmf = NMF(n_components=n_topics, init="random", random_state=42, max_iter=800)
     W = nmf.fit_transform(X)
@@ -309,4 +320,87 @@ def thematic_nmf(texts: list[str], n_topics: int = 5, max_features: int = 2000) 
                 "peso_tema_documento_medio": float(W[:, i].mean()),
             }
         )
-    return topics, W
+
+    dominant = [int(np.argmax(W[i])) + 1 for i in range(len(clean))]
+    quotes: dict[int, list[str]] = {}
+    for ti in range(n_topics):
+        order = np.argsort(W[:, ti])[::-1][:6]
+        excerpts = [clean[j] for j in order if W[j, ti] > 1e-5]
+        quotes[ti + 1] = excerpts[:5]
+
+    return topics, W, dominant, quotes, clean
+
+
+def ngram_top_table(
+    texts: list[str],
+    ngram_range: tuple[int, int] = (2, 3),
+    top_n: int = 45,
+    min_freq: int = 2,
+) -> pd.DataFrame:
+    """Bigramas / trigramas más frecuentes (apoyo para lectura léxica del discurso)."""
+    clean = [t.strip() for t in texts if t and len(t.strip()) > 4]
+    if len(clean) < 8:
+        return pd.DataFrame()
+
+    def _tok_line(t: str) -> str:
+        toks = re.findall(r"[\wáéíóúñü]+", t.lower())
+        return " ".join(w for w in toks if w not in SPANISH_STOP and len(w) > 2)
+
+    corpus = [_tok_line(t) for t in clean if _tok_line(t)]
+    if len(corpus) < 6:
+        return pd.DataFrame()
+
+    min_df_use = min_freq if len(corpus) >= 40 else 1
+    try:
+        cv = CountVectorizer(
+            ngram_range=ngram_range,
+            min_df=min_df_use,
+            max_df=0.92,
+            token_pattern=r"(?u)\b[\wáéíóúñü]{2,}\b",
+        )
+        Xm = cv.fit_transform(corpus)
+        sums = np.asarray(Xm.sum(axis=0)).ravel()
+        names = cv.get_feature_names_out()
+        ix = np.argsort(sums)[::-1][:top_n]
+        out = pd.DataFrame(
+            {"secuencia": [names[i] for i in ix], "frecuencia": [int(sums[i]) for i in ix]}
+        )
+        out["porcentaje"] = (out["frecuencia"] / out["frecuencia"].sum() * 100).round(2)
+        return out
+    except ValueError:
+        return pd.DataFrame()
+
+
+def kwic_snippets(
+    texts: list[str],
+    needle: str,
+    *,
+    max_hits: int = 40,
+    half_window: int = 60,
+) -> list[str]:
+    """
+    Concordancias tipo KWIC: fragmentos centrados alrededor de una palabra o frase buscada.
+    """
+    q = needle.lower().strip()
+    if len(q) < 2:
+        return []
+    out: list[str] = []
+    for t in texts:
+        tl = t.lower()
+        pos = 0
+        while True:
+            i = tl.find(q, pos)
+            if i == -1:
+                break
+            a = max(0, i - half_window)
+            b = min(len(t), i + len(q) + half_window)
+            frag = " ".join(t[a:b].split())
+            if a > 0:
+                frag = "… " + frag
+            if b < len(t):
+                frag = frag + " …"
+            out.append(frag)
+            if len(out) >= max_hits:
+                return out
+            pos = i + max(1, len(q))
+    return out
