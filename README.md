@@ -4,7 +4,9 @@ Carga respuestas en Excel (formularios tipo Google Forms), clasifica ítems en *
 
 ## Streamlit Cloud
 
-El archivo `requirements.txt` incluye sólo paquetes ligeros (sin PyTorch/transformers/XGBoost/SHAP) para que el despliegue en [Community Cloud](https://streamlit.io/cloud) no falle por tiempo de instalación ni memoria. Tras hacer push en `main`, en la app pulsá **Manage app** si algo sigue fallando y leé el terminal.
+El archivo `requirements.txt` incluye sólo paquetes ligeros (sin **semopy**, PyTorch, transformers, XGBoost ni SHAP) para que [Community Cloud](https://streamlit.io/cloud) no falle en la instalación. **CFA** y matriz policórica en PCA/AFE requieren `semopy`; en Cloud la app muestra CFA deshabilitado y PCA/AFE clásicos (o fallback si marcás policórico). Tras hacer push en `main`, pulsá **Manage app** si algo sigue fallando y revisá el terminal.
+
+Confirmá que el despliegue en Streamlit apunta al mismo repositorio de GitHub que actualizás (la URL `.streamlit.app` puede tener otro nombre).
 
 Versión de Python para Cloud: `runtime.txt` (3.11).
 

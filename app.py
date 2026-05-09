@@ -3,8 +3,11 @@ Panel Streamlit: encuestas Excel → clasificación de ítems, cuantitativo y cu
 """
 from __future__ import annotations
 
+import importlib.util
 import io
 from typing import Any
+
+_HAS_SEMOPY = importlib.util.find_spec("semopy") is not None
 
 import pandas as pd
 import plotly.express as px
@@ -454,9 +457,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             )
             use_poly = st.checkbox(
                 "Usar correlaciones policóricas (semopy / hetcor) para PCA y AFE",
-                value=True,
-                help="Mejor coherencia con nivel de medida ordinal. Puede tardar con muchos ítems.",
+                value=_HAS_SEMOPY,
+                disabled=not _HAS_SEMOPY,
+                help="Mejor coherencia ordinal. En Cloud suele estar desactivado (sin semopy). Local: pip install -r requirements-full.txt",
             )
+            if not _HAS_SEMOPY:
+                st.caption("En este servidor no está instalado **semopy**; PCA/AFE usan método clásico. CFA con semopy también queda omitido hasta instalar dependencias extras.")
             latent_lavaan = st.text_input("Nombre ejemplo del factor latente (export lavaan)", value="FactUtil", key="lav_lat")
             if len(items_p) < 3:
                 st.info("Seleccioná al menos tres ítems correlacionados conceptualmente.")

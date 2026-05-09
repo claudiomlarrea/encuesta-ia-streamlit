@@ -729,7 +729,13 @@ def polychoric_correlation_matrix(dat: pd.DataFrame, nearest: bool = True) -> pd
     Correlaciones policóricas pareadas (ordinal vs ordinal).
     Pasamos ndarray + índices de columna porque `hetcor(DataFrame)` de semopy transpone mal los nombres.
     """
-    from semopy.polycorr import hetcor
+    try:
+        from semopy.polycorr import hetcor
+    except ImportError as exc:
+        raise ImportError(
+            "Corr. policóricas necesitan semopy (`pip install semopy` o requirements-full.txt). "
+            "En Streamlit Cloud se usa PCA/AFE sin policórico."
+        ) from exc
 
     clean = dat.dropna(how="any").astype(float)
     n, p = clean.shape

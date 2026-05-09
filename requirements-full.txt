@@ -1,5 +1,6 @@
-# Uso local: modelos Hugging Face, XGBoost y SHAP (no usado por defecto en Cloud).
+# Uso local: semopy (CFA + policórico), HF, XGBoost, SHAP.
 -r requirements.txt
+semopy>=2.4.0
 xgboost>=2.0.0
 shap>=0.44.0
 transformers>=4.36.0
