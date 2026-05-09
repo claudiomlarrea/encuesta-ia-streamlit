@@ -232,34 +232,115 @@ def series_spanish_age_bracket_ordinal(series: pd.Series) -> tuple[pd.Series, st
     return codes, lbl
 
 
+def series_spanish_employment_status_ordinal(series: pd.Series) -> tuple[pd.Series, str]:
+    """
+    Texto típico Google Forms: «No», «Sí, a tiempo completo», «Sí, a tiempo parcial», autónomo/a, etc.
+    Ordinal orientativo ~ intensidad ocupacional declarada (1 = más bajo trabajo formal, más alto trabajo completo).
+    """
+    codes = pd.Series(np.nan, index=series.index, dtype=float)
+    lc = series.map(normalize_text).fillna("")
+    lc = lc.replace({"nan": "", "<na>": "", "none": ""})
+
+    def _stamp(mask: pd.Series, value: float) -> None:
+        sel = mask & codes.isna()
+        codes.loc[sel] = value
+
+    _stamp(
+        lc.str.contains(r"tiempo\s+completo|(?:^|[\s,])full[\s_-]*time|\bfte\b", regex=True, na=False),
+        3.0,
+    )
+    _stamp(lc.str.contains(r"a\s+cuenta\s+propia|aut[oó]nom|freelanc|monotributo", regex=True, na=False), 2.75)
+    _stamp(lc.str.contains(r"tiempo\s+parcial|medio\s+tiempo|half[\s_-]*time", regex=True, na=False), 2.0)
+    _stamp(
+        lc.str.contains(r"solo\s+estudio|no\s+trabaj|unica\s+ocupaci[oó]n[^\n]{0,24}estud", regex=True, na=False),
+        1.0,
+    )
+    _stamp(lc.str.match(r"^\s*no\s*$", na=False), 1.0)
+    _stamp(lc.str.match(r"^\s*s[ií]\s*$", na=False), 2.5)
+
+    lbl = "Situación laboral declarada (heurística español típico: 1 ausencia / no trabajo, ~2–3 ocupación declarada)"
+    return codes.astype(float), lbl
+
+
+def series_spanish_ai_tool_exposure_ordinal(series: pd.Series) -> tuple[pd.Series, str]:
+    """
+    De «no conocía» hasta «uso habitual» cuando la descripción lleva ese lenguaje (no exact match con Likert cerrado).
+    """
+    codes = pd.Series(np.nan, index=series.index, dtype=float)
+    lc = series.map(normalize_text).fillna("")
+    lc = lc.replace({"nan": "", "<na>": "", "none": ""})
+
+    def _stamp(mask: pd.Series, value: float) -> None:
+        sel = mask & codes.isna()
+        codes.loc[sel] = value
+
+    _stamp(
+        lc.str.contains(
+            r"habitu|uso\s+frecuen|uso\s+a\s+diario|diari|casi\s+siempre|constantemen|todas\s+las\s+semana",
+            regex=True,
+            na=False,
+        ),
+        5.0,
+    )
+    _stamp(lc.str.contains(r"frecuen|muchas\s+veces|\ba\s+veces\b|^a\s+veces", regex=True, na=False), 4.0)
+    _stamp(
+        lc.str.contains(r"pocas\s+veces|rara\s+vez|solo\s+pocas|alguna\s+vez\s+prob", regex=True, na=False),
+        3.0,
+    )
+    _stamp(lc.str.contains(r"solo\s+conozco\s+por\s+nombre|^con[oó]zc.*pero\s+nunca|te[oó]ric", regex=True, na=False), 2.0)
+    _stamp(
+        lc.str.contains(
+            r"no\s+con[oó]zc[oae]?|no\s+conoc[ií]|sin\s+l[eo]s?\s+conoc|sin\s+conocer|"
+            r"nunca\s+us[eé]|jam[aá]s\s+us",
+            regex=True,
+            na=False,
+        ),
+        1.0,
+    )
+
+    lbl = "Experiencia / uso herramientas IA (heurística ordinal español según formulación habitual encuesta cerrada abierta‑mixta)"
+    return codes.astype(float), lbl
+
+
 def resolve_ordinal_for_group_tests(
     series: pd.Series,
     min_cover: float = 0.40,
 ) -> tuple[pd.Series, str]:
     """
-    Preferí Likert/Frecuentes habituales; si la cobertura es baja o es «no ordinal»,
-    probá rangos típicos de **Edad:** en español antes de rechazar todo el caso.
+    1. Likert / frecuencia como siempre (primario estadístico del panel).
+    2. Fallbacks muestrales: **Edad por tramos**, **trabajo** y **uso/conocimiento IA** en formulación español típico.
+    Se adopta esquema con **mayor cobertura**, salvo Likert muy robusto (≥0,92 y esquema claro).
     """
     y_primary, scheme = detect_best_ordinal(series, min_cover=min_cover)
     yn = pd.to_numeric(y_primary, errors="coerce")
     cov_p = float(yn.notna().mean())
 
     y_age, age_lbl = series_spanish_age_bracket_ordinal(series)
-    cov_a = float(y_age.notna().mean())
+    y_work, work_lbl = series_spanish_employment_status_ordinal(series)
+    y_ai, ai_lbl = series_spanish_ai_tool_exposure_ordinal(series)
 
-    robust_likert = cov_p >= 0.92 and scheme != "no ordinal" and not scheme.endswith("(parcial)")
+    packs: list[tuple[pd.Series, str, float, str]] = [
+        (yn.astype(float), scheme, cov_p, "likert_fr"),
+        (pd.to_numeric(y_age, errors="coerce").astype(float), age_lbl, float(y_age.notna().mean()), "age"),
+        (pd.to_numeric(y_work, errors="coerce").astype(float), work_lbl, float(y_work.notna().mean()), "work"),
+        (pd.to_numeric(y_ai, errors="coerce").astype(float), ai_lbl, float(y_ai.notna().mean()), "ai_exp"),
+    ]
+
+    robust_likert = cov_p >= 0.92 and scheme != "no ordinal" and not str(scheme).endswith("(parcial)")
     if robust_likert:
         return yn, scheme
 
-    if cov_a >= 0.45 and (
-        cov_a > cov_p + 1e-3
-        or scheme == "no ordinal"
-        or cov_p < float(min_cover)
-        or cov_p <= 1e-9
-    ):
-        return y_age.astype(float), age_lbl
+    floor = max(0.35, float(min_cover) * 0.65)
+    pool = [p for p in packs if p[2] >= floor]
 
-    return yn, scheme
+    prio = {"likert_fr": 4, "age": 3, "work": 2, "ai_exp": 1}
+
+    chosen = max(
+        pool if pool else packs,
+        key=lambda it: (it[2], prio.get(it[3], 0)),
+    )
+
+    return pd.to_numeric(chosen[0], errors="coerce").astype(float), str(chosen[1])
 
 
 def modal_answer_text_by_ordinal_code(
