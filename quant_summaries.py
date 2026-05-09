@@ -759,6 +759,87 @@ def predictive_explanatory(
     return base
 
 
+def predictive_academic_explanatory(
+    *,
+    objetivo_etiqueta: str,
+    predictor_etiquetas: list[str],
+    n_muestra: int,
+    n_columnas_codificadas: int,
+    n_clases: int,
+    accuracy_por_modelo: pd.DataFrame,
+    explicacion_codificacion: dict[str, str],
+) -> str:
+    """
+    Párrafo para marco de informe (clasificación supervisada exploratoria en encuestas).
+    """
+    if accuracy_por_modelo.empty or n_muestra < 1:
+        return ""
+
+    best = accuracy_por_modelo.loc[accuracy_por_modelo["accuracy_val"].idxmax()]
+    worst = accuracy_por_modelo.loc[accuracy_por_modelo["accuracy_val"].idxmin()]
+    best_name, best_acc = str(best["modelo"]), float(best["accuracy_val"])
+    worst_name, worst_acc = str(worst["modelo"]), float(worst["accuracy_val"])
+
+    pred_list = "\n".join(f"- {_trunc(p, 92)}" for p in predictor_etiquetas[:12])
+    if len(predictor_etiquetas) > 12:
+        pred_list += f"\n- _(+{len(predictor_etiquetas) - 12} predictores más en el panel)_"
+
+    cod_lines = []
+    for k, v in list(explicacion_codificacion.items())[:8]:
+        cod_lines.append(f"- `{_trunc(str(k), 70)}` → {v}")
+    cod_blob = "\n".join(cod_lines) if cod_lines else "- (_codificación detallada no disponible_)"
+
+    k = max(2, int(n_clases))
+    azar = 100.0 / k
+    gap = (best_acc - 1.0 / k) * 100.0
+    lectura_gap = (
+        f"El **mejor accuracy ({best_acc * 100:.1f}%)** queda **{gap:+.1f} puntos porcentuales** sobre el acierto azar uniforme (~**{azar:.1f}%**). "
+    )
+    if gap < 3.0:
+        lectura_gap += (
+            "Eso suele leerse en revisión académica como **poder predictivo débil o nulo** con los rasgos actuales: "
+            "no implica que la pregunta sea inválida, sino que **estas variables no discriminan unidades en la muestra** "
+            "(o lo hacen de forma no lineal no capturada, o hace falta más información sociodemográfica/comportamental).\n\n"
+        )
+    else:
+        lectura_gap += (
+            "Indica **algo de estructura aprendible** — aun así conviene **matriz de confusión** y **F1 macro** en un trabajo formal; "
+            "un solo *holdout* no basta para publicación.\n\n"
+        )
+
+    return (
+        "### Lectura académica (clasificación supervisada exploratoria)\n\n"
+        f"Estás estimando un **problema de clasificación multiclase** típico de ciencias sociales aplicadas: predecir **{_trunc(objetivo_etiqueta, 110)}** "
+        f"a partir de un vector de **entradas tabulares** derivadas del mismo cuestionario. Tras alinear respondentes con columnas predictoras, **n = {int(n_muestra)}** "
+        f"filas entran al ajuste (sin faltantes en el objetivo en esa alineación).\n\n"
+        "#### Rol de las variables en el planteo metodológico\n\n"
+        "**Variable dependiente categórica** (codificada con `LabelEncoder` internamente). "
+        f"Tras limpiar categorías vacías, quedan **{k}** modalidades distintas en el objetivo — el modelo intenta asignar "
+        "cada encuesta a una de esas etiquetas sin usar información **post hoc** de la misma respuesta.\n\n"
+        "**Predictores** (selección tuya en la interfaz; orden convencional de presentación en informe):\n\n"
+        f"{pred_list}\n\n"
+        f"La matriz que entra a los algoritmos tiene **{int(n_columnas_codificadas)} columnas numéricas** tras expandir **ordinales inferidos** y **dummies**:\n\n"
+        f"{cod_blob}\n\n"
+        "#### Qué comparan los modelos disponibles en esta corrida (lenguaje de métodos)\n\n"
+        "- **Regresión logística:** fronteras de decisión **lineales** en el espacio de rasgos (multinomial); interpretación tipo **coeficientes** en el modelo ajustado; baseline paramétrico clásico cuando las clases están desbalanceadas (el *accuracy global* puede esconder desempeños por clase).\n"
+        "- **Árbol de decisión:** particiones **axiales** (**if‑then** sobre predictores); prioriza **interpretabilidad local** mediante reglas explícitas; sensible al tamaño muestral pero útil como **primer mapa cualitativo** de interacciones simples sin postular una forma funcional global.\n"
+        "- **Random Forest:** ensamble de árboles con **bootstrap** y aleatorización de predictores; suele tener **mayor flexibilidad** que un solo árbol, con **riesgo de sobreajuste** si solo se observa **un *holdout* 75/25** sin **validación cruzada estratificada** sistemática.\n"
+        "- **XGBoost** (si aparece en la tabla y el entorno tiene el paquete): **boosting** por etapas con regularización habitual en tablas de competiciones; alta capacidad, pero mayor riesgo de **sobreajuste narrativo** si se prueba en bucle sobre el mismo archivo sin régimen formal de inferencia.\n\n"
+        "#### Resultados numéricos — lectura cualitativa prudente\n\n"
+        f"{lectura_gap}"
+        f"Ranking observado aquí (**train/test reproducible**, semilla fija librería): **{best_name}** alcanza el mayor *accuracy* "
+        f"({best_acc:.3f}); **{worst_name}** el menor ({worst_acc:.3f}). En **objetivos con muchas etiquetas pocas pobladas** "
+        "(p. ej. unidades sin muchos casos cada una), el índice *accuracy global* puede parecer alto o bajo de forma engañosa:"
+        " en tesis institucional se recomienda **reportar soporte muestral por clase**, **kappa de Cohen ponderado**, o **métricas macro**.\n\n"
+        "#### Límites epistemológicos frecuentes en encuesta\n\n"
+        "**Correlacional:** aun si el clasificador “acierta”, ningún modelo automático dentro de esta app demuestra **causalidad socioeducativa** "
+        "(p. ej. que el acceso a PC “cause” cambio de facultad declarado). Interpretá coeficientes o reglas como **asociaciones condicionadas** sobre la muestra censada.\n\n"
+        "**Data leakage ficticio accidental:** garantizá manualmente que no estés introduciendo columnas matemáticamente deterministas por construcción con el etiquetado del objetivo (raro en uso ingenuo, pero relevante cuando se arma panel administrativo después).\n\n"
+        "**Extrapolación poblacional:** el *holdout* es interno — para generalizar a otros cohortes año a año deberían refrescarse entrenamiento y penalizar modelos densos mediante **cross‑validation estratificada**.\n\n"
+        "*Texto automatizado sólo desde tablas reproducibles locales; revisión estadística institucional sigue siendo la capa válida antes de cerrar conclusiones públicas.*"
+    )
+
+
 def cfa_explanatory_short() -> str:
     return (
         "CFA de **un solo factor**: los coeficientes y métricas (si están) describen cómo ese factor explica correlaciones observadas tras **semopy**.\n\n"

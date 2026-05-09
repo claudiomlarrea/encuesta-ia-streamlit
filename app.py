@@ -58,6 +58,7 @@ from quant_summaries import (
     loading_row_choice_labels,
     pca_explanatory,
     predictive_explanatory,
+    predictive_academic_explanatory,
     cfa_explanatory_short,
 )
 from qualitative_deep import (
@@ -101,6 +102,16 @@ def _bloque_lectura_academica_factores(texto_md: str) -> None:
     st.caption(
         "Traducción a lenguaje de informe (**PCA / factorial exploratorio**), referida explícitamente al bloque seleccionado. "
         "**No** usa IA generativa: combina tus tablas y las etiquetas de ítems de la interfaz; **no equivale** a CFA confirmatorio."
+    )
+    st.markdown(texto_md)
+
+
+def _bloque_lectura_academica_predictivos(texto_md: str) -> None:
+    st.markdown("---")
+    st.markdown("##### Lectura académica (modelos predictivos)")
+    st.caption(
+        "Marco metodológico para informes: **clasificación supervisada** sobre datos de encuesta. "
+        "**No** usa IA generativa; se arma con esta configuración, el tamaño efectivo muestral tras alinear predictor–objetivo y la tabla de *accuracy*."
     )
     st.markdown(texto_md)
 
@@ -1060,6 +1071,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 )
                                 if interp_pred:
                                     _bloque_interpretacion_cuantitativa(interp_pred)
+                                    acad_pred = predictive_academic_explanatory(
+                                        objetivo_etiqueta=_fmt_analysis_col(target),
+                                        predictor_etiquetas=[_fmt_analysis_col(c) for c in feats],
+                                        n_muestra=int(len(Xm)),
+                                        n_columnas_codificadas=int(Xm.shape[1]),
+                                        n_clases=int(n_cls),
+                                        accuracy_por_modelo=pred_acc_tbl,
+                                        explicacion_codificacion=expl,
+                                    )
+                                    if acad_pred:
+                                        _bloque_lectura_academica_predictivos(acad_pred)
                             except Exception as exc:
                                 st.error(str(exc))
                     else:
