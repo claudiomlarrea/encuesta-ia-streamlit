@@ -717,7 +717,8 @@ def fit_predictive_suite(
                 "X_test": X_test,
                 "y_test": y_test,
             }
-    except ImportError:
+    except Exception:
+        # ImportError si no hay paquete; XGBoostError u otros si el binario no carga (p. ej. falta libomp).
         pass
 
     return results, Xt.values
@@ -763,46 +764,149 @@ def decision_tree_rules_text(dt_model: Any, feature_names: list[str]) -> str:
     return export_text(dt_model, feature_names=fn, max_depth=20, decimals=2, show_weights=True)
 
 
-def shap_summary_figure(model: Any, X_sample: pd.DataFrame, multiclass_class: int | None = None):
+def _predictive_classifier_core(model: Any) -> Any:
+    if hasattr(model, "named_steps"):
+        return model.named_steps.get("clf", model.steps[-1][1])
+    return model
+
+
+def _is_tree_classifier_for_shap(classifier: Any) -> bool:
+    """Árboles y bosques ⇒ TreeExplainer; XGB también."""
+    nm = classifier.__class__.__name__
+    if "XGB" in nm or "HistGradientBoostingClassifier" == nm:
+        return True
+    try:
+        from sklearn.tree import DecisionTreeClassifier  # pragma: no cover
+        from sklearn.ensemble import (  # pragma: no cover
+            RandomForestClassifier,
+            ExtraTreesClassifier,
+        )
+
+        return isinstance(classifier, (DecisionTreeClassifier, RandomForestClassifier, ExtraTreesClassifier))
+    except ImportError:
+        return False
+
+
+def shap_matrix_for_class(model: Any, X_sample: pd.DataFrame, multiclass_class: int | None = None) -> np.ndarray:
+    """
+    Matriz (n_filas × n_características) de valores SHAP para la clase o margen seleccionados.
+    """
+    try:
+        import shap  # noqa: PLC0415
+    except ImportError as exc:
+        raise ImportError("Instala el paquete 'shap' (ahora viene en requirements.txt).") from exc
+
+    clf = _predictive_classifier_core(model)
+    klass = (
+        multiclass_class
+        if multiclass_class is not None
+        else 0
+    )
+
+    def _unpack(vals: Any) -> np.ndarray:
+        ix = max(0, int(klass))
+        if isinstance(vals, list):
+            ix = min(ix, len(vals) - 1)
+            return np.asarray(vals[ix], dtype=float).reshape(len(X_sample), -1)
+        arr = np.asarray(vals, dtype=float)
+        if arr.ndim == 3:
+            # Forma nueva (ej. TreeExplainer): (muestra, rasgo, clase)
+            ix3 = min(ix, arr.shape[2] - 1)
+            return arr[:, :, ix3]
+        if arr.ndim == 2:
+            return arr
+        return arr.reshape(len(X_sample), -1)
+
+    if _is_tree_classifier_for_shap(clf):
+        expl = shap.TreeExplainer(clf)
+        raw = expl.shap_values(np.asarray(X_sample, dtype=float))
+        return _unpack(raw)
+
+    n_bg = max(60, len(X_sample) // 5)
+    bg = X_sample.iloc[: min(n_bg, len(X_sample))]
+    expl = shap.LinearExplainer(clf, np.asarray(bg, dtype=float))
+    raw = expl.shap_values(np.asarray(X_sample, dtype=float))
+    return _unpack(raw)
+
+
+def shap_relative_importance_table_from_matrix(
+    mat: np.ndarray,
+    feature_names: list[str],
+    *,
+    top_n: int = 48,
+) -> pd.DataFrame:
+    """Tabla ordenada desde matriz SHAP ya calculada."""
+    mat = np.asarray(mat, dtype=float)
+    if mat.shape[1] != len(feature_names):
+        raise ValueError("Columnas SHAP y nombres de rasgos no coinciden.")
+    m_abs = np.abs(mat).mean(axis=0).astype(float)
+    tot = float(m_abs.sum())
+    pct = np.zeros_like(m_abs) if tot <= 0 else (100.0 * m_abs / tot)
+    out = pd.DataFrame(
+        {
+            "variable": list(feature_names),
+            "|SHAP| medio": np.round(m_abs, 6),
+            "contribución_relativa_%": np.round(pct, 2),
+        }
+    )
+    return (
+        out.sort_values("contribución_relativa_%", ascending=False)
+        .reset_index(drop=True)
+        .head(top_n)
+    )
+
+
+def shap_relative_importance_table(
+    model: Any,
+    X_sample: pd.DataFrame,
+    multiclass_class: int | None = None,
+    *,
+    top_n: int = 48,
+) -> pd.DataFrame:
+    """
+    Media de |SHAP| por variable normalizada al 100 % dentro de esta muestra (lectura intuitiva tipo «peso relativo»).
+
+    Es un **resumen distribucional**, no probabilidad estadística causal.
+    """
+    mat = shap_matrix_for_class(model, X_sample, multiclass_class=multiclass_class)
+    return shap_relative_importance_table_from_matrix(mat, list(X_sample.columns), top_n=top_n)
+
+
+def shap_diagnostic_bundle(
+    model: Any,
+    X_sample: pd.DataFrame,
+    multiclass_class: int | None = None,
+    *,
+    top_n_tabla: int = 48,
+) -> tuple[Any, pd.DataFrame]:
+    """
+    Un solo cómputo de SHAP ⇒ figura *bar summary* + tabla de % relativos sobre |SHAP| medio.
+    """
     import matplotlib.pyplot as plt
 
     try:
-        import shap
+        import shap  # noqa: PLC0415
     except ImportError as exc:
         raise ImportError(
-            "Paquete 'shap' no instalado (en Cloud no va en requirements.txt). "
-            "Localmente: pip install shap o pip install -r requirements-full.txt"
+            "Paquete 'shap' no instalado. Corré la app con pip install según requirements.txt."
         ) from exc
 
+    mat = shap_matrix_for_class(model, X_sample, multiclass_class=multiclass_class)
+    tab = shap_relative_importance_table_from_matrix(mat, list(X_sample.columns), top_n=top_n_tabla)
+
     plt.ioff()
-
-    if hasattr(model, "named_steps"):
-        clf = model.named_steps.get("clf", model.steps[-1][1])
-    else:
-        clf = model
-
-    if "RandomForestClassifier" == clf.__class__.__name__ or "XGB" in clf.__class__.__name__ or "DecisionTree" == clf.__class__.__name__:
-        expl = shap.TreeExplainer(clf)
-        vals = expl.shap_values(X_sample)
-        fig = plt.figure(figsize=(9, 5))
-        if isinstance(vals, list):
-            ix = multiclass_class or 0
-            shap.summary_plot(vals[ix], X_sample, plot_type="bar", max_display=min(24, X_sample.shape[1]), show=False)
-        else:
-            shap.summary_plot(vals, X_sample, plot_type="bar", max_display=min(24, X_sample.shape[1]), show=False)
-        plt.tight_layout()
-        return fig
-
-    bg = X_sample.iloc[: max(60, len(X_sample) // 5)]
-    expl = shap.LinearExplainer(clf, bg)
-    shap_vals = expl.shap_values(X_sample)
-    fig = plt.figure(figsize=(9, 5))
-    if isinstance(shap_vals, list):
-        ix = multiclass_class or 0
-        shap.summary_plot(shap_vals[ix], X_sample, plot_type="bar", max_display=min(24, X_sample.shape[1]), show=False)
-    else:
-        shap.summary_plot(shap_vals, X_sample, plot_type="bar", max_display=min(24, X_sample.shape[1]), show=False)
+    maxdisp = min(24, max(4, X_sample.shape[1]))
+    fig = plt.figure(figsize=(9, max(5, 0.35 * maxdisp)))
+    shap.summary_plot(mat, X_sample, plot_type="bar", max_display=maxdisp, show=False)
     plt.tight_layout()
+    return fig, tab
+
+
+def shap_summary_figure(model: Any, X_sample: pd.DataFrame, multiclass_class: int | None = None):
+    """Gráfico de barras solo (si ya tenés tabla, preferí ``shap_diagnostic_bundle``)."""
+    fig, _tab = shap_diagnostic_bundle(
+        model, X_sample, multiclass_class=multiclass_class, top_n_tabla=min(480, max(48, X_sample.shape[1]))
+    )
     return fig
 
 

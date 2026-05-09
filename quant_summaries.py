@@ -746,14 +746,15 @@ def predictive_explanatory(
         )
     if shap_disponible:
         base += (
-            f"**SHAP** (si el gráfico corre arriba) resume importancias medias con el modelo elegido (**{modelo_shap}**). "
-            "Los **árboles** también se pueden leer con la figura + reglas que agrega la app (sin depender de SHAP).\n\n"
+            f"**SHAP** (árbol de barras + **tabla CSV** con % relativos sobre |SHAP| medio) está activo con "
+            f"**{modelo_shap}**; revisá la **clase objetivo** elegida en el deslizador cuando haya muchas categorías. "
+            "**Árbol + reglas** siguen disponibles como segunda lectura.\n\n"
         )
     else:
         base += (
-            "**SHAP** no está instalado en este despliegue (típico en Community Cloud): en local `pip install shap` o "
-            "`requirements-full.txt`. Mientras tanto, usá el **gráfico del árbol de decisión** y las **reglas en texto** "
-            f"como interpretación orientativa (aunque el desplegable de modelo diga **{modelo_shap}** para SHAP).\n\n"
+            "Si **no aparece el bloque SHAP**, el servidor no resolvió la dependencia (`pip install shap` suele "
+            "incluirla vía `requirements.txt`). Mientras tanto usá el **árbol de decisión** y las **reglas en texto** "
+            f"como guía (igual podés dejar elegido **{modelo_shap}** en el desplegable).\n\n"
         )
     base += "**No** sustituye diseño muestral externo ni validación institucional específica."
     return base

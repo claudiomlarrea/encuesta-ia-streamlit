@@ -44,7 +44,7 @@ from quant_advanced import (
     run_pca_with_loadings,
     decision_tree_rules_text,
     plot_decision_tree_figure,
-    shap_summary_figure,
+    shap_diagnostic_bundle,
 )
 from quant_summaries import (
     academic_exploratory_factor_reading,
@@ -981,10 +981,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             # --- Predictivos ---
             if "7. Predictivos + SHAP" in Q:
                 with Q["7. Predictivos + SHAP"]:
-                    st.markdown("#### Modelos predictivos + interpretabilidad (SHAP orientativo)")
+                    st.markdown("#### Modelos predictivos + interpretabilidad SHAP (tipo Shapley)")
                     st.caption(
-                        "**Cloud:** suele instalarse sin `shap`; igual podés comparar accuracy y **graficar el árbol de decisión** (sklearn) abajo."
-                        + (" **SHAP** disponible en este entorno." if _HAS_SHAP else "")
+                        "**SHAP** permite ver **contribución marginal** por variable sobre el modelo elegido "
+                        "(gráfico de barras + tabla de pesos relativos en la muestra de test). Si el entorno "
+                        "**no tiene** instalado `shap`, igual podés usar el **árbol de decisión** más abajo."
+                        + (" **Paquete `shap` detectado.**" if _HAS_SHAP else "")
                     )
                     target = st.selectbox(
                         "Variable objetivo (categoría a predecir)",
@@ -1039,16 +1041,43 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 shap_mostro = False
                                 if _HAS_SHAP:
                                     try:
-                                        fig = shap_summary_figure(res[model_key]["model"], Xs, multiclass_class=mcidx)
+                                        st.markdown("##### Resumen visual SHAP (barras por variable)")
+                                        fig, tabla_shap = shap_diagnostic_bundle(
+                                            res[model_key]["model"],
+                                            Xs,
+                                            multiclass_class=mcidx,
+                                            top_n_tabla=96,
+                                        )
                                         st.pyplot(fig)
                                         plt.close(fig)
+                                        st.markdown("##### Pesos relativos (|SHAP| medio ⇒ % dentro de esta muestra)")
+                                        st.caption(
+                                            "Los **contribución_relativa_%** suman 100 % entre las rasgos estimadas sobre las filas muestradas; "
+                                            "es una lectura **orientativa del modelo**, no causa ni tamaño muestral efectivo."
+                                        )
+                                        st.dataframe(
+                                            tabla_shap,
+                                            hide_index=True,
+                                            use_container_width=True,
+                                        )
+                                        st.download_button(
+                                            label="Descargar tabla SHAP — importancia relativa (.csv)",
+                                            data=tabla_shap.to_csv(index=False).encode("utf-8"),
+                                            file_name="shap_importancia_relativa.csv",
+                                            mime="text/csv",
+                                            key="dl_shap_rel_pct",
+                                            help="Misma muestra que el gráfico (subconjunto del conjunto de test).",
+                                        )
                                         shap_mostro = True
                                     except Exception as exc:
                                         st.warning(f"SHAP omitido: {exc}")
                                 else:
                                     st.info(
-                                        "**SHAP** no está instalado en este servidor (común en Community Cloud por tamaño del paquete). "
-                                        "Instalalo localmente: `pip install shap` o `pip install -r requirements-full.txt`."
+                                        "**Sin paquete `shap`** en esta instalación. "
+                                        "En el despliegue estándar del repo viene en `requirements.txt`; "
+                                        "si igual no aparece, localmente podés ejecutar `pip install shap` "
+                                        "o `pip install -r requirements-full.txt`. "
+                                        "Mientras tanto usá **Árbol de decisión — figura y reglas** más abajo."
                                     )
 
                                 if "Árbol de decisión" in res:
