@@ -9,7 +9,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quant_advanced import GroupComparisonResult, likert_matrix_key_to_original_column
+from quant_advanced import (
+    GroupComparisonResult,
+    likert_matrix_key_to_original_column,
+    modal_answer_text_by_ordinal_code,
+)
 
 from survey_intel import build_column_label_map
 
@@ -492,11 +496,78 @@ def academic_exploratory_factor_reading(
     )
 
 
-def kmeans_cluster_reading_hints(centers: pd.DataFrame, vc: pd.DataFrame | None = None) -> str:
+def _ordinal_scale_crib_sheet(scheme: str) -> str:
+    """Líneas cortas sobre qué orden tienen los enteros típicos (texto estándar de la app)."""
+    if "Likert (5" in scheme or scheme.startswith("Likert (5"):
+        return "- **1** totalmente / bastante **en desacuerdo**, **5** totalmente **de acuerdo**."
+    if "Likert (4" in scheme or scheme.startswith("Likert (4"):
+        return "- **1** en desacuerdo fuerte … **4** muy de **acuerdo** (sin neutro explícito o escala corta)."
+    if "Frecuencia (5" in scheme or scheme.startswith("Frecuencia (5"):
+        return "- **1** ≈ «Nunca» … **5** ≈ «Siempre» (**3** uso **moderado** «A veces»)."
+    if "Frecuencia (4 niveles, variante N–R–A–S)" in scheme:
+        return "- **1** ≈ «Nunca» … **4** ≈ «Siempre» (**3** suele coincidir con «A veces»)."
+    if "N–A–F–S" in scheme:
+        return "- **1** ≈ «Nunca» … **4** «Siempre» con **«Frecuentemente» como 3**."
+    return "- Los números suben cuando la práctica declarada sobre el ítem es **más frecuente / más favorable** dentro del esquema detectado por la app."
+
+
+def _ordinal_mean_paraphrase(mu: float, scheme: str) -> str:
+    if "Likert (5" in scheme or scheme.startswith("Likert (5"):
+        if mu < 2.35:
+            return "perfil con marcado desacuerdo con lo que dice el ítem"
+        if mu < 3.05:
+            return "perfil en desacuerdo o algo negativo/neutral antes del punto medio"
+        if mu < 3.68:
+            return "perfil equilibrado o neutro respecto del ítem"
+        if mu < 4.32:
+            return "perfil con algo de acuerdo sobre lo que formuló la pregunta"
+        return "perfil con marcado acuerdo (se alinea con la afirmación en promedio)"
+
+    if "Likert (4" in scheme or scheme.startswith("Likert (4"):
+        if mu < 2.1:
+            return "perfil con marcado desacuerdo (Likert‑4 típico)"
+        if mu < 2.95:
+            return "perfil tirando al desacuerdo"
+        if mu < 3.68:
+            return "perfil intermedio, sin postura marcada sobre el ítem"
+        return "perfil con marcado acuerdo dentro de la Likert‑4"
+
+    if "Frecuencia (5" in scheme or scheme.startswith("Frecuencia (5"):
+        if mu < 1.9:
+            return "uso declarado casi nulo o muy esporádico de lo preguntado"
+        if mu < 2.68:
+            return "uso poco habitual (cerca del polo «rara vez» de la escala‑5 habitual)"
+        if mu < 3.62:
+            return "uso moderado-ocasional (alrededor de «a veces»)"
+        if mu < 4.35:
+            return "uso bastante habitual (cerca de «frecuentemente»)"
+        return "uso declarado muy cotidiano (cerca de «siempre»)"
+
+    if "variante N–R–A–S)" in scheme:
+        if mu < 1.8:
+            return "uso casi ausente declarado (polo bajo en cuatro niveles)"
+        if mu < 3.05:
+            return "entre uso poco habitual y ocasional"
+        return "entre uso frecuente y uso siempre declarado (mitad alta)"
+
+    return f"valor medio ordinal alrededor de {mu:.2f}: contrastalo contra los ejemplos de texto por nivel más arriba."
+
+
+def kmeans_cluster_reading_hints(
+    centers: pd.DataFrame,
+    vc: pd.DataFrame | None = None,
+    *,
+    df_source: pd.DataFrame | None = None,
+    feat_columns: list[str] | None = None,
+    feat_display_labels: list[str] | None = None,
+    inverted_cols: set[str] | None = None,
+) -> str:
     """
     Guía compacta para el usuario: K-means no asigna nombres «semánticos»; se infieren desde centroides/dummies.
     """
     blocks: list[str] = []
+
+    invset = inverted_cols or set()
 
     idx_centers = sorted(int(i) for i in centers.index.tolist())
     have_vc = set()
@@ -513,6 +584,42 @@ def kmeans_cluster_reading_hints(centers: pd.DataFrame, vc: pd.DataFrame | None 
             " en la práctica podés usar **k = número de combinaciones diferentes** observadas.\n\n"
         )
 
+    ordinal_ctx = ""
+    ord_col_name: str | None = None
+    modal_map: dict[int, str] = {}
+    scheme_lab = ""
+    fc = feat_columns or []
+    fdl = feat_display_labels or []
+    if df_source is not None and len(fc) == 1:
+        c0 = fc[0]
+        cand_ord = f"{c0}__ord"
+        if cand_ord in centers.columns:
+            ord_col_name = cand_ord
+            display_item = fdl[0] if fdl else _trunc(str(c0), 88)
+            modal_map, scheme_lab = modal_answer_text_by_ordinal_code(
+                df_source[c0],
+                inverted=c0 in invset,
+                min_cover=0.22,
+            )
+            crib = _ordinal_scale_crib_sheet(scheme_lab)
+            if modal_map:
+                level_lines = "\n".join(
+                    f"  - **Entero {k}**: modalidad texto más repetida («{_trunc(v, 68)}»)" for k, v in sorted(modal_map.items())
+                )
+                empty_note = ""
+            else:
+                level_lines = "  - (_No bastan respuestas textuales mapeadas vía ordinal automático._)"
+                empty_note = "\n\n*Tip:* si tus opciones usan formulaciones muy distintas al diccionario interno español típico, igual podés usar el número del centroide con la tabla de **centroides** y nombrarlo a mano."
+            ordinal_ctx = (
+                "\n#### Nombres sugeribles cuando segmentás por **una** pregunta Likert / frecuencia\n\n"
+                f"**Ítem en este análisis:** **{display_item}** — esquema detectado sobre la submuestra activa acá: "
+                f"*{scheme_lab}*.\n\n"
+                "**Escala rápida (numeritos del centroide en esta columna `__ord`):**  \n"
+                f"{crib}\n\n"
+                "**Texto real del Excel agrupado por nivel numérico** (modo por nivel; así ves con qué frase «habla» cada entero antes de etiquetar clústers):\n\n"
+                f"{level_lines}{empty_note}\n\n"
+            )
+
     blocks.append(
         (
             "### Cómo leer los números de clúster (0, 1, 2…)\n\n"
@@ -523,6 +630,7 @@ def kmeans_cluster_reading_hints(centers: pd.DataFrame, vc: pd.DataFrame | None 
             "en esa columna suelen interpretarse como «**este segmento coincide más con esa opción declarada en promedio**».\n\n"
         )
         + dup_note
+        + ordinal_ctx
         + "**Sugerencia automática (orientativa)** a partir de la tabla anterior:\n\n"
     )
 
@@ -544,7 +652,23 @@ def kmeans_cluster_reading_hints(centers: pd.DataFrame, vc: pd.DataFrame | None 
             nm = str(col)
             val = float(row[col])
             if nm.endswith("__ord"):
-                dom.append(f"media ordinal **~{val:.2f}** en `{_trunc(nm.replace('__ord',''), 64)}`")
+                if ord_col_name == nm and modal_map:
+                    keys = sorted(modal_map.keys())
+                    near_lv = min(keys, key=lambda k: abs(k - val))
+                    exemple = modal_map.get(near_lv, "")
+                    verbal = _ordinal_mean_paraphrase(val, scheme_lab)
+                    suffix = ""
+                    if exemple:
+                        suffix = f"; **texto muestral cercano**: «{_trunc(exemple, 64)}» (nivel entero más cercano: **{near_lv}**)"
+                    dom.append(
+                        f"promedio **{val:.2f}** en escala ordinal → *{verbal}*{suffix}"
+                    )
+                elif ord_col_name == nm:
+                    dom.append(
+                        f"promedio **{val:.2f}** en escala ordinal (`{ _trunc(nm.replace('__ord', ''), 64)}`) sin mapa texto automático suficiente"
+                    )
+                else:
+                    dom.append(f"media ordinal **~{val:.2f}** en `{_trunc(nm.replace('__ord',''), 64)}`")
             elif val >= 0.52:
                 tail = nm.split("_")[-1][:40]
                 dom.append(f"predominio relativo **{tail}** (`{_trunc(nm, 60)}`) con centroide ≈ **{val:.2f}**")

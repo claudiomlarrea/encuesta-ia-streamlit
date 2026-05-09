@@ -888,7 +888,16 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     "**Clúster 0 vs 1 vs 2:** qué significan y cómo nombrarlos",
                                     expanded=True,
                                 ):
-                                    st.markdown(kmeans_cluster_reading_hints(centers, vc))
+                                    st.markdown(
+                                        kmeans_cluster_reading_hints(
+                                            centers,
+                                            vc,
+                                            df_source=df_work,
+                                            feat_columns=feat_c,
+                                            feat_display_labels=[_fmt_analysis_col(c) for c in feat_c],
+                                            inverted_cols=invert_set,
+                                        )
+                                    )
                                 _bloque_interpretacion_cuantitativa(
                                     clustering_explanatory(
                                         "K-means",

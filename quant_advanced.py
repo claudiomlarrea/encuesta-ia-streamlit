@@ -202,6 +202,39 @@ def detect_best_ordinal(series: pd.Series, min_cover: float = 0.55) -> tuple[pd.
     return pd.Series([np.nan] * len(series), index=series.index), "no ordinal"
 
 
+def modal_answer_text_by_ordinal_code(
+    series: pd.Series,
+    *,
+    inverted: bool = False,
+    min_cover: float = 0.22,
+) -> tuple[dict[int, str], str]:
+    """
+    Para cada nivel numérico ordinal inferido en la muestra, devuelve un texto ejemplo
+    (moda literal en el Excel) para poder nombrar clústeres con el lenguaje del cuestionario.
+    """
+    coded, scheme = detect_best_ordinal(series, min_cover=min_cover)
+    coded = coded.astype(float)
+    if inverted:
+        coded = invert_ordinal_series(coded)
+    out: dict[int, str] = {}
+    raw = series.astype(str).replace({"nan": ""})
+    mask = coded.notna() & raw.str.strip().astype(bool)
+    if not mask.any():
+        return {}, scheme
+    for lev_f in sorted(coded.loc[mask].dropna().unique()):
+        lev = int(round(float(lev_f)))
+        sel = mask & coded.notna() & ((coded - float(lev_f)).abs() < 1e-6)
+        if sel.sum() == 0:
+            continue
+        top = raw.loc[sel].value_counts()
+        if len(top):
+            snippet = str(top.index[0]).replace("\n", " ").strip()
+            if len(snippet) > 72:
+                snippet = snippet[:69] + "…"
+            out[lev] = snippet
+    return out, scheme
+
+
 def ordinal_scaling_report(mat: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     """Resume amplitudes ordinales por columna útil cuando mezclas escalas 4 y 5 categorías."""
     msgs: list[str] = []
