@@ -51,6 +51,7 @@ from qualitative_deep import (
 from survey_intel import (
     ColumnProfile,
     SentimentModel,
+    build_column_label_map,
     classify_columns,
     explode_multiselect,
     frequency_table,
@@ -240,6 +241,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
     open_items = [p for p in profiles if p.kind == "abierta" and p.n_non_null > 0]
 
     all_analysis_cols = [c for c in df.columns if not is_timestamp_column(c)]
+    col_labels = build_column_label_map(all_analysis_cols)
+
+    def _fmt_analysis_col(x: str) -> str:
+        if x == "(ninguno)":
+            return x
+        return col_labels.get(x, x)
 
     main_ordered = [t for t in MAIN_TABS_ORDER if t in main_sections]
     if not main_ordered:
@@ -320,6 +327,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     "Filtrar por categoría (opcional)",
                     options=["(ninguno)"] + all_analysis_cols,
                     index=0,
+                    format_func=_fmt_analysis_col,
                 )
                 strata_vals = []
                 if strata_col != "(ninguno)":
@@ -334,6 +342,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     options=["(ninguno)"] + timestamp_cols,
                     index=0,
                     key="date_filter_col",
+                    format_func=_fmt_analysis_col,
                 )
                 df1, dt2 = st.columns(2)
                 d_from = df1.date_input("Desde", value=None, key="cmp_from")
@@ -368,12 +377,13 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     "(p. ej. riesgos o impedimentos). Se aplica \\(mín+máx-x\\) con **mín y máx propios por ítem** "
                     "(válido si mezclas escalas de **4 vs 5** categorías o anchuras distintas)."
                 )
-                invert_pick = st.multiselect(
-                    "Invertir estos ítems en escalas codificadas",
-                    options=all_analysis_cols,
-                    default=[],
-                    key="inverted_protocol_items",
-                )
+            invert_pick = st.multiselect(
+                "Invertir estos ítems en escalas codificadas",
+                options=all_analysis_cols,
+                default=[],
+                key="inverted_protocol_items",
+                format_func=_fmt_analysis_col,
+            )
             invert_set: set[str] = set(invert_pick)
     
             q_ord = [m for m in QUANT_MODULE_ORDER if m in quant_modules]
@@ -401,12 +411,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     if not structured_w:
                         st.warning("No hay ítems estructurados en la submuestra.")
                     else:
+                        _sw_names = [p.name for p in structured_w]
+                        _sw_lab = build_column_label_map(_sw_names)
                         choice = st.selectbox(
                             "Ítem para descriptivos",
-                            options=[p.name for p in structured_w],
-                            format_func=lambda x: next(p.short_name for p in structured_w if p.name == x),
+                            options=_sw_names,
+                            format_func=lambda x: _sw_lab.get(x, x),
                             key="desc_pick",
+                            help="Cada opción muestra «n.» + fragmento distintivo (p. ej. texto tras «[» en matrices Google Forms).",
                         )
+                        with st.expander("Texto completo del ítem seleccionado"):
+                            st.write(choice)
                         col_series = df_work[choice]
                         prof = next(p for p in structured_w if p.name == choice)
                         multi = st.checkbox(
@@ -461,8 +476,19 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 with Q["2. Cruces + χ²"]:
                     st.markdown("#### Tabla cruzada y Chi-cuadrado")
                     cleft, cright = st.columns(2)
-                    rcol = cleft.selectbox("Variable fila", all_analysis_cols, key="chi_row")
-                    ccol = cright.selectbox("Variable columna", all_analysis_cols, index=min(1, len(all_analysis_cols) - 1), key="chi_col")
+                    rcol = cleft.selectbox(
+                        "Variable fila",
+                        all_analysis_cols,
+                        key="chi_row",
+                        format_func=_fmt_analysis_col,
+                    )
+                    ccol = cright.selectbox(
+                        "Variable columna",
+                        all_analysis_cols,
+                        index=min(1, len(all_analysis_cols) - 1),
+                        key="chi_col",
+                        format_func=_fmt_analysis_col,
+                    )
                     if rcol == ccol:
                         st.warning("Elegí dos variables distintas.")
                     else:
@@ -478,8 +504,18 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 with Q["3. Pruebas de significancia"]:
                     st.markdown("#### Comparar escala numérica (ordinal inferida) entre grupos")
                     g1, g2 = st.columns(2)
-                    ycol = g1.selectbox("Variable respuesta (ordinal)", all_analysis_cols, key="sig_y")
-                    gcol = g2.selectbox("Variable de agrupación", all_analysis_cols, key="sig_g")
+                    ycol = g1.selectbox(
+                        "Variable respuesta (ordinal)",
+                        all_analysis_cols,
+                        key="sig_y",
+                        format_func=_fmt_analysis_col,
+                    )
+                    gcol = g2.selectbox(
+                        "Variable de agrupación",
+                        all_analysis_cols,
+                        key="sig_g",
+                        format_func=_fmt_analysis_col,
+                    )
                     ynum, _sch = detect_best_ordinal(df_work[ycol], min_cover=0.40)
                     if ycol in invert_set:
                         ynum = invert_ordinal_series(ynum)
@@ -516,6 +552,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         "Ítems Likert / frecuencia (mínimo 2 columnas)",
                         options=all_analysis_cols,
                         default=[],
+                        format_func=_fmt_analysis_col,
                     )
                     if len(items_c) >= 2:
                         mat = likert_numeric_matrix(df_work, items_c, inverted_cols=invert_set).dropna(how="any")
@@ -546,6 +583,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         "Columnas Likert escaladas como continuas ordinarias",
                         options=all_analysis_cols,
                         key="pca_items",
+                        format_func=_fmt_analysis_col,
                     )
                     use_poly = st.checkbox(
                         "Usar correlaciones policóricas (semopy / hetcor) para PCA y AFE",
@@ -645,7 +683,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if "6. Clustering" in Q:
                 with Q["6. Clustering"]:
                     st.markdown("#### Segmentación (K-means, DBSCAN, jerárquico)")
-                    feat_c = st.multiselect("Variables para perfiles", options=all_analysis_cols, key="clust_feat")
+                    feat_c = st.multiselect(
+                        "Variables para perfiles",
+                        options=all_analysis_cols,
+                        key="clust_feat",
+                        format_func=_fmt_analysis_col,
+                    )
                     mode = st.radio("Algoritmo", ["K-means", "DBSCAN", "Jerárquico (dendrograma)"], horizontal=True)
                     if len(feat_c) >= 2:
                         Xf, expl = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
@@ -680,12 +723,18 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if "7. Predictivos + SHAP" in Q:
                 with Q["7. Predictivos + SHAP"]:
                     st.markdown("#### Modelos predictivos + interpretabilidad (SHAP orientativo)")
-                    target = st.selectbox("Variable objetivo (categoría a predecir)", all_analysis_cols, key="tgt")
+                    target = st.selectbox(
+                        "Variable objetivo (categoría a predecir)",
+                        all_analysis_cols,
+                        key="tgt",
+                        format_func=_fmt_analysis_col,
+                    )
                     feats = st.multiselect(
                         "Predictores",
                         options=[c for c in all_analysis_cols if c != target],
                         default=[],
                         key="pred_feats",
+                        format_func=_fmt_analysis_col,
                     )
                     shap_pick = st.selectbox(
                         "Modelo para explicación SHAP",
@@ -739,7 +788,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 with Q["8. CFA – semopy"]:
                     st.markdown("#### CFA simple (un factor latente)")
                     lat = st.text_input("Nombre del factor latente (sin espacios raros)", value="CompetDig")
-                    cfa_items = st.multiselect("Índicadores observados", options=all_analysis_cols, key="cfa_items")
+                    cfa_items = st.multiselect(
+                        "Índicadores observados",
+                        options=all_analysis_cols,
+                        key="cfa_items",
+                        format_func=_fmt_analysis_col,
+                    )
                     if len(cfa_items) >= 3:
                         model, tabla, err = optional_sem_estimate(
                             df_work, lat, cfa_items, inverted_cols=invert_set
@@ -786,12 +840,15 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if not open_items:
                 st.warning("No hay columnas marcadas como abiertas con datos.")
             else:
+                _oi_names = [p.name for p in open_items]
+                _oi_lab = build_column_label_map(_oi_names)
                 oc = st.selectbox(
                     "Columna abierta",
-                    options=[p.name for p in open_items],
-                    format_func=lambda x: next(p.short_name for p in open_items if p.name == x),
+                    options=_oi_names,
+                    format_func=lambda x: _oi_lab.get(x, x),
+                    help="«n.» indica el orden en el archivo; el texto tras «[» suele ser el subítem de la matriz.",
                 )
-                q_label = next(p.short_name for p in open_items if p.name == oc)
+                q_label = _oi_lab.get(oc, oc)
                 texts = df[oc].dropna().astype(str).tolist()
 
                 filtered = [t.strip() for t in texts if len(t.strip()) > 4]

@@ -64,6 +64,48 @@ def _short_label(col: str) -> str:
     return s
 
 
+def _longest_common_prefix(strings: list[str]) -> str:
+    """Prefijo compartido por todas las cadenas (para quitar encabezados idénticos en matrices)."""
+    if len(strings) < 2:
+        return ""
+    a = min(strings)
+    b = max(strings)
+    for i, c in enumerate(a):
+        if i >= len(b) or c != b[i]:
+            return a[:i]
+    return a
+
+
+def choice_label(column_name: str, position: int, peer_columns: list[str]) -> str:
+    """
+    Etiqueta distinguible para selectores: «n. …» con fragmento que diferencia ítems
+    (subítem tipo Google Forms tras «[», o texto sin prefijo común largo, o cola).
+    """
+    s = column_name.replace("\n", " ").strip()
+    peers = [p.replace("\n", " ").strip() for p in peer_columns] if peer_columns else [s]
+    tag: str
+    if "[" in s:
+        tag = s[s.index("[") :].strip()
+    else:
+        lcp = _longest_common_prefix(peers)
+        if len(lcp) >= 35 and s.startswith(lcp):
+            tag = s[len(lcp) :].strip()
+        else:
+            tag = s
+        if len(tag) < 6 and len(s) > 50:
+            tag = "…" + s[-min(75, len(s)) :]
+    if len(tag) > 105:
+        tag = tag[:102] + "…"
+    return f"{position}. {tag}"
+
+
+def build_column_label_map(columns: list[str]) -> dict[str, str]:
+    """Mapa nombre interno de columna → etiqueta para UI (orden + fragmento distintivo)."""
+    if not columns:
+        return {}
+    return {c: choice_label(c, i + 1, columns) for i, c in enumerate(columns)}
+
+
 SPANISH_STOP = frozenset(
     """
     el la los las un una unos unas y o u de del al a en con por para sin sobre entre
