@@ -6,6 +6,7 @@ openpyxl>=3.1.0
 plotly>=5.18.0
 numpy>=1.24.0
 scipy>=1.10.0
-scikit-learn>=1.3.0
+# factor-analyzer 0.5.1 llama check_array(..., force_all_finite=...); sklearn >=1.8 lo eliminó.
+scikit-learn>=1.3.0,<1.8.0
 matplotlib>=3.8.0
 factor-analyzer>=0.5.1
