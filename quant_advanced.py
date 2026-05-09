@@ -1320,6 +1320,30 @@ def filter_dataframe_comparison(
     return out
 
 
+def encoded_series_for_cronbach(
+    series: pd.Series,
+    *,
+    inverted: bool = False,
+    min_cover: float = 0.28,
+) -> tuple[pd.Series, str]:
+    """
+    Convierte una columna a numérico ordinal para Alfa / matrices Likert‑like.
+    Misma regla histórica: Likert‑frecuencia con umbral muestral laxo (`min_cover`).
+    Si no hay ordinal reconocido, intenta valores 1‑7 mayoritarios; si no, mapa Likert texto.
+    """
+    code, scheme = detect_best_ordinal(series, min_cover=min_cover)
+    if scheme == "no ordinal":
+        num_try = pd.to_numeric(series, errors="coerce")
+        if len(num_try.dropna()) and num_try.dropna().between(1, 7).mean() >= 0.85:
+            code = num_try
+        else:
+            code = series_to_likert_numeric(series)
+    if inverted:
+        code = invert_ordinal_series(code)
+    out = pd.to_numeric(code, errors="coerce").astype(float)
+    return out, scheme
+
+
 def likert_numeric_matrix(
     df: pd.DataFrame,
     cols: list[str],
@@ -1329,17 +1353,88 @@ def likert_numeric_matrix(
     pieces: dict[str, pd.Series] = {}
     keys = unique_short_column_labels([str(c) for c in cols])
     for c, key in zip(cols, keys, strict=True):
-        code, scheme = detect_best_ordinal(df[c], min_cover=0.28)
-        if scheme.startswith("no"):
-            num_try = pd.to_numeric(df[c], errors="coerce")
-            if num_try.dropna().between(1, 7).mean() >= 0.85:
-                code = num_try
-            else:
-                code = series_to_likert_numeric(df[c])
-        if c in inverted_cols:
-            code = invert_ordinal_series(code)
+        code, _scheme = encoded_series_for_cronbach(
+            df[c], inverted=c in inverted_cols, min_cover=0.28
+        )
         pieces[key] = code
     return pd.DataFrame(pieces)
+
+
+def cronbach_encoding_diagnostics(
+    df: pd.DataFrame,
+    cols: list[str],
+    inverted_cols: set[str] | None = None,
+    *,
+    min_cover: float = 0.28,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Devuelve (tabla ítem a ítem, resumen muestral, **matriz codificada antes de list‑wise**).
+    Primera tabla: métricas por columnas cortas únicas (`unique_short_column_labels`).
+    """
+    inverted_cols = inverted_cols or set()
+    keys = unique_short_column_labels([str(c) for c in cols])
+    pieces: dict[str, pd.Series] = {}
+    rows: list[dict[str, Any]] = []
+
+    raw_nonempty = pd.Series(False, index=df.index)
+    for c in cols:
+        txt = df[c].map(lambda x: normalize_text(x) if pd.notna(x) else "").astype(str).str.strip().replace({"nan": ""})
+        raw_nonempty = raw_nonempty | txt.astype(bool)
+
+    for c, key in zip(cols, keys, strict=True):
+        code, scheme = encoded_series_for_cronbach(df[c], inverted=c in inverted_cols, min_cover=min_cover)
+        cov = float(code.notna().mean())
+        nv = int(code.notna().sum())
+        txt = df[c].map(lambda x: normalize_text(x) if pd.notna(x) else "").astype(str).str.strip().replace({"nan": ""})
+        raw_n = int(txt.astype(bool).sum())
+        missing_enc = (~code.notna()) & txt.astype(bool)
+        sample_unmapped = (
+            "; ".join(txt.loc[missing_enc].astype(str).value_counts().head(3).index.astype(str).tolist())
+            if missing_enc.any()
+            else ""
+        )
+        rows.append(
+            dict(
+                ítem=ellipsis_text(bracket_sub_item_label(str(c)), 52) if bracket_sub_item_label(str(c)) else ellipsis_text(column_key_short(str(c), 140), 80),
+                esquema=ellipsis_text(str(scheme), 72),
+                n_respuesta_texto=raw_n,
+                n_codificado=nv,
+                cobertura_codif_pct=round(cov * 100, 1),
+            )
+        )
+        pieces[key] = code
+        rows[-1]["muestra_no_codificadas"] = sample_unmapped[:120] + ("…" if len(sample_unmapped) > 120 else "")
+    diag = pd.DataFrame(rows)
+
+    mat_enc = pd.DataFrame(pieces)
+    n_ov_enc = len(mat_enc.dropna(how="any"))
+
+    def _nonempty(series: pd.Series) -> pd.Series:
+        txt = (
+            series.map(lambda x: normalize_text(x) if pd.notna(x) else "")
+            .astype(str)
+            .str.strip()
+            .replace({"nan": "", "<na>": "", "none": ""})
+        )
+        return txt.astype(bool)
+
+    raw_ov = _nonempty(df[cols[0]])
+    for c in cols[1:]:
+        raw_ov = raw_ov & _nonempty(df[c])
+    n_raw_pair = int(raw_ov.sum())
+
+    summary = pd.DataFrame(
+        [
+            {
+                "filas_codificadas_todas": n_ov_enc,
+                "respuestas_texto_sin_vacio_todas": n_raw_pair,
+                "filas_alguna_respuesta_txt": int(raw_nonempty.sum()),
+                "filas_totales_dataset": len(df),
+            }
+        ]
+    )
+
+    return diag, summary, mat_enc
 
 
 def sanitize_lavaan_variable_names(columns: list[str]) -> list[str]:

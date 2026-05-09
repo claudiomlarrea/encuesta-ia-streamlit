@@ -21,6 +21,7 @@ import numpy as np
 from quant_advanced import (
     aggregate_shap_table_by_question,
     compare_numeric_across_groups,
+    cronbach_encoding_diagnostics,
     crosstab_chi_square,
     cronbach_alpha,
     dbscan_profiles,
@@ -665,14 +666,44 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         format_func=_fmt_analysis_col,
                     )
                     if len(items_c) >= 2:
-                        mat = likert_numeric_matrix(df_work, items_c, inverted_cols=invert_set).dropna(how="any")
+                        diag_tbl, diag_sum, enc_mat_cron = cronbach_encoding_diagnostics(
+                            df_work, items_c, inverted_cols=invert_set
+                        )
+                        mat = enc_mat_cron.dropna(how="any")
+                        with st.expander(
+                            "Diagnóstico: codificación y superposición (antes del list‑wise)",
+                            expanded=len(mat) < 20,
+                        ):
+                            st.markdown(
+                                "**List‑wise** descarta cualquier fila con **codificación incompleta** (texto fuera del diccionario Likert/Frecuencia del panel). "
+                                "Si la cobertura de una columna es baja pero el Excel sí tiene texto, esa columna aporta muchos NaN tras mapear — y la intersección colapsa."
+                            )
+                            st.dataframe(diag_sum, hide_index=True, use_container_width=True)
+                            st.dataframe(diag_tbl, hide_index=True, use_container_width=True)
+
+                        ds0 = diag_sum.iloc[0].to_dict() if len(diag_sum) else {}
+                        raw_pair_n = int(ds0.get("respuestas_texto_sin_vacio_todas", 0))
+
                         if len(mat) < 20:
                             st.warning("Muy pocos casos completos tras listwise deletion.")
+                            extra = ""
+                            if len(mat) == 0 and raw_pair_n > 5:
+                                extra = (
+                                    f"Las columnas muestran **{raw_pair_n}** personas con texto no vacío en **todas** las preguntas seleccionadas, "
+                                    "pero ninguna pasó codificación ordinal en todas: revisá etiquetas típicas (p. ej. frecuencia distinta de «nunca / rara vez / …», "
+                                    "opciones cerradas‑largas, múltiple elección)."
+                                )
+                            elif len(mat) == 0 and raw_pair_n == 0:
+                                extra = (
+                                    "Prácticamente **nadie** tiene simultáneamente respuesta de texto útil en **todas** las columnas: saltos/lógico del Google Form o columnas muy faltantes."
+                                )
                             _bloque_interpretacion_cuantitativa(
-                                f"Hay **{len(mat)}** filas completas sobre **{mat.shape[1]}** ítems. "
-                                "Con pocas personas respondiendo todas las preguntas del bloque, el **α de Cronbach** suele fluctuar tanto que "
-                                "no lo mostramos de forma destacada: preferí aumentar la tasa de respuesta, filtrar la cohorte donde el bloque esté más completo "
-                                "o agrupar dimensiones relacionadas después de chequear outliers de omisión."
+                                f"Hay **{len(mat)}** filas completas sobre **{mat.shape[1]}** ítems (solo casos donde **todas** las escalas quedaron mapeadas a número). "
+                                "Con pocas personas en esa intersección, el **α de Cronbach** fluctúa mucho; el panel oculta el resultado destacado. "
+                                "**No indica necesariamente un fallo**: suele venir de mezclas de tipo de ítem / etiquetas fuera del diccionario / omisión combinada entre columnas.\n\n"
+                                + extra
+                                + ("\n\n" if extra else "")
+                                + "Preferí **homogeneizar opciones Likert‑like**, filtrar cohortes donde el bloque sea completo, o usar otros bloques cuando corresponda."
                             )
                         else:
                             rep_cron, warns_cron = ordinal_scaling_report(mat)
