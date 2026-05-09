@@ -3,12 +3,35 @@ Análisis cuantitativo avanzado para datos de encuesta (ordenales, correlaciones
 """
 from __future__ import annotations
 
+import re
+import textwrap
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
+
+
+def column_key_short(name: str, max_len: int = 64) -> str:
+    return str(name).replace("\n", " ").strip()[:max_len]
+
+
+def invert_ordinal_series(s: pd.Series) -> pd.Series:
+    """
+    Inverso dentro del rango observado por ítem: x' = mín + máx − x.
+    Pensado para ítems Likert formulados en sentido contrario al resto del bloque.
+    """
+    out = s.astype(float).copy()
+    m = out.notna()
+    if not m.any():
+        return out
+    lo = float(out.loc[m].min())
+    hi = float(out.loc[m].max())
+    if hi <= lo:
+        return out
+    out.loc[m] = lo + hi - out.loc[m]
+    return out
 
 
 # --- Codificación ordinal (español, formularios Google típicos) ---
@@ -71,13 +94,15 @@ def detect_best_ordinal(series: pd.Series, min_cover: float = 0.55) -> tuple[pd.
     return pd.Series([np.nan] * len(series), index=series.index), "no ordinal"
 
 
-def descriptive_one_column(series: pd.Series) -> dict[str, Any]:
+def descriptive_one_column(series: pd.Series, inverted: bool = False) -> dict[str, Any]:
     raw = series.dropna()
     vc = raw.astype(str).value_counts()
     total = vc.sum()
     pct = vc / total * 100 if total else vc * 0
     mode = vc.index[0] if len(vc) else ""
     coded, scheme = detect_best_ordinal(series)
+    if inverted:
+        coded = invert_ordinal_series(coded)
     valid_codes = coded.dropna()
 
     stats_block: dict[str, Any | None]
@@ -262,16 +287,24 @@ def coerce_binary_target(series: pd.Series, positive_keywords: tuple[str, ...]) 
     return out
 
 
-def prepare_feature_matrix(df: pd.DataFrame, cols: list[str], max_dummy: int = 22) -> tuple[pd.DataFrame, dict[str, str]]:
+def prepare_feature_matrix(
+    df: pd.DataFrame,
+    cols: list[str],
+    max_dummy: int = 22,
+    inverted_cols: set[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, str]]:
     """
     Produce matriz numérica: ordenales automáticas; baja cardinalidad con dummies.
     """
+    inverted_cols = inverted_cols or set()
     explanations: dict[str, str] = {}
     mats: list[pd.DataFrame] = []
     for c in cols:
         s = df[c]
         coded, scheme = detect_best_ordinal(s, min_cover=0.42)
         if coded.notna().mean() >= 0.42:
+            if c in inverted_cols:
+                coded = invert_ordinal_series(coded)
             mats.append(pd.DataFrame({f"{c}__ord": coded}))
             explanations[c] = f"Ordinal inferido ({scheme})"
             continue
@@ -462,6 +495,84 @@ def run_pca_with_loadings(X: pd.DataFrame, n_components: int):
     return Z, loadings, var
 
 
+def polychoric_correlation_matrix(dat: pd.DataFrame, nearest: bool = True) -> pd.DataFrame:
+    """
+    Correlaciones policóricas pareadas (ordinal vs ordinal).
+    Pasamos ndarray + índices de columna porque `hetcor(DataFrame)` de semopy transpone mal los nombres.
+    """
+    from semopy.polycorr import hetcor
+
+    clean = dat.dropna(how="any").astype(float)
+    n, p = clean.shape
+    if n < max(35, p + 8):
+        raise ValueError(
+            "Pocas observaciones para correlaciones policóricas estables "
+            "(sugerimos al menos más filas que columnas + margen)."
+        )
+    vals = np.ascontiguousarray(clean.values, dtype=float)
+    p = vals.shape[1]
+    colnames = clean.columns.to_list()
+    ords_full = set(range(p))
+    cor_out = hetcor(vals, ords=ords_full, nearest=nearest)
+    if isinstance(cor_out, pd.DataFrame):
+        cor_out = cor_out.astype(float).copy()
+        cor_out.columns = colnames[: cor_out.shape[1]]
+        cor_out.index = colnames[: cor_out.shape[0]]
+        return cor_out
+    arr = np.asarray(cor_out, dtype=float)
+    return pd.DataFrame(arr, index=colnames, columns=colnames)
+
+
+def pca_loadings_from_correlation_matrix(
+    corr_df: pd.DataFrame, n_components: int
+) -> tuple[pd.DataFrame, np.ndarray]:
+    """
+    PCA vía eigendecomposition de la matriz de correlación (cargas = autovectores * sqrt(autovalor)).
+    """
+    R = np.asarray(corr_df.values, dtype=float)
+    eigvals, eigvecs = np.linalg.eigh(R)
+    eigvals = np.asarray(np.real_if_close(eigvals, tol=400), dtype=float)
+    eigvecs = eigvecs.real
+    ix = np.argsort(eigvals)[::-1]
+    eigvals = eigvals[ix]
+    eigvecs = eigvecs[:, ix]
+    tot = eigvals.clip(min=1e-15).sum()
+    nc = max(1, min(int(n_components), R.shape[0]))
+    vals = eigvals[:nc]
+    vecs = eigvecs[:, :nc]
+    loadings_mat = vecs * np.sqrt(np.maximum(vals, 0.0))
+    loadings = pd.DataFrame(
+        loadings_mat,
+        index=corr_df.index,
+        columns=[f"PC{i + 1}" for i in range(nc)],
+    )
+    variance_ratio = vals / tot
+    return loadings, variance_ratio
+
+
+def run_efa_from_correlation_matrix(
+    corr_df: pd.DataFrame, n_factors: int, rotation: str = "varimax"
+) -> tuple[pd.DataFrame, Any]:
+    from factor_analyzer import FactorAnalyzer
+
+    p = corr_df.shape[0]
+    nf = max(2, min(int(n_factors), p - 1))
+    Rvals = corr_df.values.astype(float)
+    try:
+        fa = FactorAnalyzer(n_factors=nf, rotation=rotation, method="minres", is_corr_matrix=True)
+        fa.fit(Rvals)
+    except Exception:
+        fa = FactorAnalyzer(n_factors=nf, rotation=rotation, method="principal", is_corr_matrix=True)
+        fa.fit(Rvals)
+    loadings = pd.DataFrame(
+        fa.loadings_,
+        index=corr_df.columns,
+        columns=[f"F{i + 1}" for i in range(nf)],
+    )
+    eig = getattr(fa, "get_eigenvalues", lambda: (None, None))()
+    return loadings, eig
+
+
 def run_efa(df: pd.DataFrame, n_factors: int, rotation: str = "varimax"):
     from factor_analyzer import FactorAnalyzer
     from sklearn.preprocessing import StandardScaler
@@ -525,7 +636,10 @@ def hierarchical_linkage_plot(Xs: pd.DataFrame):
 
 
 def optional_sem_estimate(
-    df: pd.DataFrame, latent_name: str, items: list[str]
+    df: pd.DataFrame,
+    latent_name: str,
+    items: list[str],
+    inverted_cols: set[str] | None = None,
 ) -> tuple[Any | None, pd.DataFrame, str | None]:
     """CFA de un factor (semopy): `Latente =~ i1+i2+i3`."""
     try:
@@ -533,6 +647,7 @@ def optional_sem_estimate(
     except ImportError:
         return None, pd.DataFrame(), "Instalá semopy (`pip install semopy`) para CFA básico en Python."
 
+    inverted_cols = inverted_cols or set()
     work = pd.DataFrame(index=df.index)
     colnames: dict[str, str] = {}
     for j, raw in enumerate(items):
@@ -544,6 +659,8 @@ def optional_sem_estimate(
             work[key] = pd.factorize(s.astype(str))[0].astype(float)
         else:
             work[key] = coded
+        if raw in inverted_cols:
+            work[key] = invert_ordinal_series(work[key])
     work = work.astype(float).dropna()
     latent = "".join(ch for ch in latent_name.strip() if ch.isalnum() or ch == "_")
     if not latent or latent[0].isdigit():
@@ -582,11 +699,70 @@ def filter_dataframe_comparison(
     return out
 
 
-def likert_numeric_matrix(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+def likert_numeric_matrix(
+    df: pd.DataFrame,
+    cols: list[str],
+    inverted_cols: set[str] | None = None,
+) -> pd.DataFrame:
+    inverted_cols = inverted_cols or set()
     pieces: dict[str, pd.Series] = {}
     for c in cols:
         code, scheme = detect_best_ordinal(df[c], min_cover=0.28)
         if scheme.startswith("no"):
-            code = series_to_likert_numeric(df[c])
-        pieces[c.replace("\n", " ")[:64]] = code
+            num_try = pd.to_numeric(df[c], errors="coerce")
+            if num_try.dropna().between(1, 7).mean() >= 0.85:
+                code = num_try
+            else:
+                code = series_to_likert_numeric(df[c])
+        if c in inverted_cols:
+            code = invert_ordinal_series(code)
+        pieces[column_key_short(c)] = code
     return pd.DataFrame(pieces)
+
+
+def sanitize_lavaan_variable_names(columns: list[str]) -> list[str]:
+    used = set()
+    names_out: list[str] = []
+    for i, raw in enumerate(columns):
+        slug = re.sub(r"\W+", "_", column_key_short(str(raw), 96), flags=re.UNICODE).strip("_")
+        slug = slug or f"v{i + 1}"
+        if slug and slug[0].isdigit():
+            slug = f"v_{slug}"
+        cand = slug
+        suf = 0
+        while cand in used:
+            suf += 1
+            cand = f"{slug}_{suf}"
+        used.add(cand)
+        names_out.append(cand)
+    return names_out
+
+
+def relabel_corr_for_export(corr_df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    lavaan_cols = sanitize_lavaan_variable_names([str(c) for c in corr_df.columns])
+    rel = corr_df.astype(float).copy()
+    rel.index = lavaan_cols
+    rel.columns = lavaan_cols
+    return rel, lavaan_cols
+
+
+def lavaan_export_snippet(latent_name: str, var_names: list[str], sample_nobs: int) -> str:
+    latent = "".join(ch for ch in latent_name.strip() if ch.isalnum() or ch == "_").strip("_") or "F1"
+    if latent and latent[0].isdigit():
+        latent = f"_{latent}"
+    meas = " + ".join(var_names[:50])
+    return textwrap.dedent(
+        f"""
+        library(lavaan)
+        S <- as.matrix(read.csv("cor_poly.csv", row.names = 1, check.names = FALSE))
+
+        model <- '
+          {latent} =~ {meas}
+        '
+        fit <- cfa(model, sample.cov = S, sample.nobs = {int(sample_nobs)}, std.lv = TRUE)
+        summary(fit, fit.measures = TRUE, standardized = TRUE)
+
+        ## Si tratás ítems como ordenados categóricos, mejor flujo ordered= + WLSE / WLSMV.
+        ## Consultá tu protocolo estadístico y guías de lavaan antes de cerrar inferencias finales.
+        """
+    ).strip()

@@ -11,6 +11,7 @@ import plotly.express as px
 import streamlit as st
 
 import matplotlib.pyplot as plt
+import numpy as np
 
 from quant_advanced import (
     compare_numeric_across_groups,
@@ -22,11 +23,17 @@ from quant_advanced import (
     filter_dataframe_comparison,
     fit_predictive_suite,
     hierarchical_linkage_plot,
+    invert_ordinal_series,
     kmeans_profiles,
+    lavaan_export_snippet,
     likert_numeric_matrix,
     optional_sem_estimate,
+    pca_loadings_from_correlation_matrix,
+    polychoric_correlation_matrix,
     prepare_feature_matrix,
+    relabel_corr_for_export,
     run_efa,
+    run_efa_from_correlation_matrix,
     run_pca_with_loadings,
     shap_summary_figure,
 )
@@ -214,6 +221,19 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         if len(df_work) < len(df):
             st.caption(f"Submuestra activa: **{len(df_work)}** respondentes (dataset completo {len(df)}).")
 
+        with st.expander("Protocolo estadístico: ítems con formulación invertida", expanded=False):
+            st.markdown(
+                "Seleccioná **antes** del análisis las columnas Likert formuladas en sentido contrario "
+                "(p. ej. riesgos o impedimentos). Se aplica \\(mín+máx-x\\) dentro del rango observado de cada ítem."
+            )
+            invert_pick = st.multiselect(
+                "Invertir estos ítems en escalas codificadas",
+                options=all_analysis_cols,
+                default=[],
+                key="inverted_protocol_items",
+            )
+        invert_set: set[str] = set(invert_pick)
+
         s1, s2, s3, s4, s5, s6, s7, s8, s9 = st.tabs(
             [
                 "1. Descriptivos",
@@ -273,7 +293,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 fig.update_layout(yaxis={"categoryorder": "total ascending"})
                 st.plotly_chart(fig, use_container_width=True)
 
-                desc = descriptive_one_column(col_series)
+                desc = descriptive_one_column(col_series, inverted=(choice in invert_set))
                 st.markdown("#### Estadísticos (si el ítem es ordinal reconocible)")
                 mcols = st.columns(4)
                 mcols[0].metric("n válidos", desc["n_no_na"])
@@ -320,6 +340,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             ycol = g1.selectbox("Variable respuesta (ordinal)", all_analysis_cols, key="sig_y")
             gcol = g2.selectbox("Variable de agrupación", all_analysis_cols, key="sig_g")
             ynum, _sch = detect_best_ordinal(df_work[ycol], min_cover=0.40)
+            if ycol in invert_set:
+                ynum = invert_ordinal_series(ynum)
             sub = pd.DataFrame({"y": ynum, "g": df_work[gcol]}).dropna()
             if len(sub) < 12:
                 st.warning("Pocos casos con codificación ordinal válida y grupo informado.")
@@ -354,7 +376,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 default=[],
             )
             if len(items_c) >= 2:
-                mat = likert_numeric_matrix(df_work, items_c).dropna(how="any")
+                mat = likert_numeric_matrix(df_work, items_c, inverted_cols=invert_set).dropna(how="any")
                 if len(mat) < 20:
                     st.warning("Muy pocos casos completos tras listwise deletion.")
                 else:
@@ -373,33 +395,91 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 options=all_analysis_cols,
                 key="pca_items",
             )
-            n_pc = st.slider("Dimensiones PCA", 2, min(12, max(3, len(items_p))), min(6, len(items_p) or 2))
-            nf = st.slider(
-                "Factores AFE",
-                2,
-                min(8, max(2, len(items_p) - 1)),
-                (min(4, len(items_p) - 1) if len(items_p) > 3 else 2),
+            use_poly = st.checkbox(
+                "Usar correlaciones policóricas (semopy / hetcor) para PCA y AFE",
+                value=True,
+                help="Mejor coherencia con nivel de medida ordinal. Puede tardar con muchos ítems.",
             )
-            if len(items_p) >= 3:
-                Xnum = likert_numeric_matrix(df_work, items_p).dropna(how="any")
+            latent_lavaan = st.text_input("Nombre ejemplo del factor latente (export lavaan)", value="FactUtil", key="lav_lat")
+            if len(items_p) < 3:
+                st.info("Seleccioná al menos tres ítems correlacionados conceptualmente.")
+            else:
+                max_dims = max(3, len(items_p))
+                n_pc = st.slider(
+                    "Dimensiones PCA",
+                    min_value=2,
+                    max_value=min(12, max_dims),
+                    value=min(6, max_dims),
+                    key="slider_pca_dims",
+                )
+                max_factors = max(2, min(8, len(items_p) - 1))
+                nf_default = min(4, max_factors)
+                nf = st.slider(
+                    "Factores AFE",
+                    min_value=2,
+                    max_value=max_factors,
+                    value=nf_default,
+                    key="slider_efa_factors",
+                )
+                Xnum = likert_numeric_matrix(df_work, items_p, inverted_cols=invert_set).dropna(how="any")
                 if len(Xnum) < 40:
                     st.warning("Necesitas más observaciones completas para factores estables.")
                 else:
-                    _scores, loadings, var = run_pca_with_loadings(Xnum, n_components=min(n_pc, Xnum.shape[1]))
-                    st.markdown("##### Varianza explicada (PCA)")
-                    st.bar_chart(pd.Series(var, index=[f"PC{i+1}" for i in range(len(var))]))
-                    st.markdown("##### Cargas PCA")
-                    st.dataframe(loadings.round(3), use_container_width=True)
-                    try:
-                        load_efa, eig, _ = run_efa(Xnum, n_factors=min(nf, Xnum.shape[1] - 1))
-                        st.markdown("##### Cargas rotadas (Varimax)")
-                        st.dataframe(load_efa.round(3), use_container_width=True)
-                        if eig[0] is not None:
-                            st.caption("Autovalores (AFE): " + ", ".join(f"{v:.2f}" for v in eig[0][: min(8, len(eig[0]))]))
-                    except Exception as exc:
-                        st.warning(f"AFE no convergió o faltan datos: {exc}")
-            else:
-                st.info("Seleccioná al menos tres ítems correlacionados conceptualmente.")
+                    n_pc_eff = min(int(n_pc), Xnum.shape[1])
+                    nf_eff = min(int(nf), max(2, Xnum.shape[1] - 1))
+                    ran_poly = False
+                    if use_poly:
+                        try:
+                            with st.spinner("Calculando matriz policórica (pairwise ordinal)..."):
+                                R_poly = polychoric_correlation_matrix(Xnum.astype(float), nearest=True)
+                            ran_poly = True
+                            loadings_pca, var_pc = pca_loadings_from_correlation_matrix(R_poly, n_pc_eff)
+                            st.success("PCA y AFE basados en matriz policórica (PD aprox.).")
+                            st.markdown("##### Varianza explicada (PCA sobre correlaciones policóricas)")
+                            st.bar_chart(
+                                pd.Series(var_pc, index=[f"PC{i+1}" for i in range(len(var_pc))])
+                            )
+                            st.markdown("##### Cargas PCA")
+                            st.dataframe(loadings_pca.round(3), use_container_width=True)
+                            load_efa, eig = run_efa_from_correlation_matrix(R_poly, n_factors=nf_eff)
+                            st.markdown("##### Cargas AFE rotadas (Varimax, entrada = R policórica)")
+                            st.dataframe(load_efa.round(3), use_container_width=True)
+                            if eig is not None and eig[0] is not None:
+                                ev = np.asarray(eig[0]).ravel()
+                                st.caption("Autovalores (AFE): " + ", ".join(f"{v:.2f}" for v in ev[: min(8, ev.size)]))
+                            rel_r, sane_names = relabel_corr_for_export(R_poly)
+                            st.download_button(
+                                "Descargar matriz para lavaan (`cor_poly.csv`)",
+                                data=rel_r.to_csv(encoding="utf-8"),
+                                file_name="cor_poly.csv",
+                                mime="text/csv",
+                            )
+                            st.code(lavaan_export_snippet(latent_lavaan, sane_names, len(Xnum)), language="r")
+                            with st.expander("Matriz policórica (vista rápida, nombres originales abreviados)"):
+                                st.dataframe(R_poly.round(4), use_container_width=True)
+                        except Exception as exc:
+                            st.warning(f"No se pudo usar la policórica ({exc}). Se muestra método clásico (Pearson/sklearn).")
+                            ran_poly = False
+                    if not ran_poly:
+                        _scores, loadings, var = run_pca_with_loadings(
+                            Xnum, n_components=n_pc_eff
+                        )
+                        st.markdown("##### Varianza explicada (PCA clásico, datos tipificados)")
+                        st.bar_chart(pd.Series(var, index=[f"PC{i+1}" for i in range(len(var))]))
+                        st.markdown("##### Cargas PCA")
+                        st.dataframe(loadings.round(3), use_container_width=True)
+                        try:
+                            load_efa, eig, _ = run_efa(Xnum, n_factors=nf_eff)
+                            st.markdown("##### Cargas AFE rotadas (Varimax, datos continuos estándar)")
+                            st.dataframe(load_efa.round(3), use_container_width=True)
+                            if eig[0] is not None:
+                                ev_fallback = np.asarray(eig[0]).ravel()
+                                st.caption(
+                                    "Autovalores (AFE): "
+                                    + ", ".join(f"{v:.2f}" for v in ev_fallback[: min(8, ev_fallback.size)])
+                                )
+                        except Exception as exc:
+                            st.warning(f"AFE no convergió o faltan datos: {exc}")
 
         # --- Clustering ---
         with s6:
@@ -407,7 +487,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             feat_c = st.multiselect("Variables para perfiles", options=all_analysis_cols, key="clust_feat")
             mode = st.radio("Algoritmo", ["K-means", "DBSCAN", "Jerárquico (dendrograma)"], horizontal=True)
             if len(feat_c) >= 2:
-                Xf, expl = prepare_feature_matrix(df_work, feat_c)
+                Xf, expl = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
                 st.caption("Codificación: " + " | ".join(f"{k[:40]}: {v}" for k, v in list(expl.items())[:6]))
                 if Xf.empty:
                     st.error("No se pudo construir la matriz de rasgos (revisá cardinalidades).")
@@ -450,7 +530,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 ["Random Forest", "Regresión logística", "Árbol de decisión", "XGBoost"],
             )
             if len(feats) >= 2:
-                Xm, expl = prepare_feature_matrix(df_work, feats)
+                Xm, expl = prepare_feature_matrix(df_work, feats, inverted_cols=invert_set)
                 y_series = df_work[target].astype(str)
                 if Xm.empty:
                     st.error("Matriz predictores vacía.")
@@ -498,7 +578,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             lat = st.text_input("Nombre del factor latente (sin espacios raros)", value="CompetDig")
             cfa_items = st.multiselect("Índicadores observados", options=all_analysis_cols, key="cfa_items")
             if len(cfa_items) >= 3:
-                model, tabla, err = optional_sem_estimate(df_work, lat, cfa_items)
+                model, tabla, err = optional_sem_estimate(
+                    df_work, lat, cfa_items, inverted_cols=invert_set
+                )
                 if model is None:
                     st.warning(err or "No se pudo estimar el CFA.")
                 else:
@@ -517,12 +599,13 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         with s9:
             st.markdown(
                 """
-Los bloques siguientes están **implementados**: descriptivos, cruces χ², t/Mann‑Whitney, ANOVA/Kruskal, Cronbach, PCA/AFE Varimax,
-K‑means / DBSCAN / jerárquico, regresión logística / árbol / bosque aleatorio / XGBoost + **SHAP** (explicaciones locales agregadas), y **CFA de un factor** con `semopy`.
+**Protocolo de ítems invertidos:** documentá y marcá en el expander superior las columnas con redacción invertida; el mismo criterio se aplica a Alfa, factores, CFA, comparaciones y segmentación.
 
-**SEM complejo** con varios factores correlacionados, senderos causales mediados y ajustes avanzados (CFI/TLI/RMSEA detallados) conviene hacerlo en **lavaan (R)** o **SmartPLS / AMOS** y reportar métricas de bondad de ajuste según tus supuestos de distribución.
+**Policórico + lavaan:** PCA y AFE pueden basarse en **`semopy.polycorr.hetcor`** (matriz semi‑definida proyectada con `corr_nearest`). El CSV `cor_poly.csv` y el ejemplo de **lavaan** son orientativos — validá `sample.nobs` (= casos tras listwise deletion) y el tipo de estimador (p. ej. WLSMV con `ordered`) con tu asesor estadístico.
 
-**Análisis longitudinal** multicohorte suele combinar modelo jerárquico o ANOVA repetida; acá sólo aplicamos **filtros** de fecha/unidad como primer paso descriptivo.
+También están descriptivos, cruces χ², pruebas clásicas, Cronbach, clustering, modelos predictivos + **SHAP**, y **CFA de un factor** en `semopy`.
+
+**SEM complejo** sigue siendo más defendible en **lavaan**, **SmartPLS** o **AMOS**. **Longitudinal:** por ahora sólo **filtros** cohorte/fecha.
                 """
             )
 

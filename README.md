@@ -19,3 +19,8 @@ La primera vez que activás el modelo de Hugging Face se descargan pesos grandes
 ## Datos sensibles
 
 Por defecto `.gitignore` excluye `*.xlsx`. Versioná sólo datos anonimizados o quitá esa regla si corresponde.
+
+## Protocolo estadístico en la app
+
+- **Ítems invertidos:** marcálos en el expander de la pestaña cuantitativa (misma convención antes de ver resultados).
+- **Policórico + R:** en *PCA / AFE* podés descargar `cor_poly.csv` y copiar el ejemplo `lavaan` (revisá estimadores y muestra según tu diseño).
