@@ -44,12 +44,14 @@ from quant_advanced import (
     shap_summary_figure,
 )
 from quant_summaries import (
+    academic_exploratory_factor_reading,
     chi_square_explanatory,
     clustering_explanatory,
     cronbach_explanatory,
     descriptive_explanatory,
     efa_explanatory,
     group_comparison_explanatory,
+    loading_row_choice_labels,
     pca_explanatory,
     predictive_explanatory,
     cfa_explanatory_short,
@@ -85,6 +87,16 @@ def _bloque_interpretacion_cuantitativa(texto_md: str) -> None:
     st.caption(
         "El texto siguiente se arma **solo** con los valores mostrados arriba (sin IA generativa). "
         "Complementalo con el marco teórico del estudio y, si corresponde, asesoría estadística institucional."
+    )
+    st.markdown(texto_md)
+
+
+def _bloque_lectura_academica_factores(texto_md: str) -> None:
+    st.markdown("---")
+    st.markdown("##### Lectura académica exploratoria")
+    st.caption(
+        "Traducción a lenguaje de informe (**PCA / factorial exploratorio**), referida explícitamente al bloque seleccionado. "
+        "**No** usa IA generativa: combina tus tablas y las etiquetas de ítems de la interfaz; **no equivale** a CFA confirmatorio."
     )
     st.markdown(texto_md)
 
@@ -685,6 +697,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         else:
                             n_pc_eff = min(int(n_pc), Xnum.shape[1])
                             nf_eff = min(int(nf), max(2, Xnum.shape[1] - 1))
+                            lab_ld = loading_row_choice_labels(items_p)
                             ran_poly = False
                             if use_poly:
                                 try:
@@ -716,7 +729,13 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     with st.expander("Matriz policórica (vista rápida, nombres originales abreviados)"):
                                         st.dataframe(R_poly.round(4), use_container_width=True)
                                     _bloque_interpretacion_cuantitativa(
-                                        pca_explanatory(loadings_pca, var_pc, len(Xnum), method="policórica")
+                                        pca_explanatory(
+                                            loadings_pca,
+                                            var_pc,
+                                            len(Xnum),
+                                            method="policórica",
+                                            row_labels=lab_ld,
+                                        )
                                         + "\n\n---\n\n"
                                         + efa_explanatory(
                                             load_efa,
@@ -726,6 +745,23 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             method_note=(
                                                 "Rotación **Varimax**, factores desde **correlaciones policóricas** "
                                                 "(mejor vínculo con ítems ordinales; requiere **semopy**)."
+                                            ),
+                                            row_labels=lab_ld,
+                                        )
+                                    )
+                                    _bloque_lectura_academica_factores(
+                                        academic_exploratory_factor_reading(
+                                            selected_columns=items_p,
+                                            row_labels_matrix_index=lab_ld,
+                                            loadings_pca=loadings_pca,
+                                            var_ratio=var_pc,
+                                            loadings_efa=load_efa,
+                                            eig=eig,
+                                            n_factors_requested=nf_eff,
+                                            n_obs=len(Xnum),
+                                            pca_engine_description="PCA sobre correlaciones policóricas aprox.",
+                                            efa_engine_description=(
+                                                "AFE (minres / principal desde R policórico) rotado ortogonalmente (Varimax)"
                                             ),
                                         )
                                     )
@@ -751,7 +787,13 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             + ", ".join(f"{v:.2f}" for v in ev_fallback[: min(8, ev_fallback.size)])
                                         )
                                     _bloque_interpretacion_cuantitativa(
-                                        pca_explanatory(loadings, var, len(Xnum), method="PCA clásico")
+                                        pca_explanatory(
+                                            loadings,
+                                            var,
+                                            len(Xnum),
+                                            method="PCA clásico",
+                                            row_labels=lab_ld,
+                                        )
                                         + "\n\n---\n\n"
                                         + efa_explanatory(
                                             load_efa,
@@ -761,14 +803,53 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             method_note=(
                                                 "**Varimax**, factores tras estandarización de respuestas (tratamiento ordinal continuado)."
                                             ),
+                                            row_labels=lab_ld,
+                                        )
+                                    )
+                                    _bloque_lectura_academica_factores(
+                                        academic_exploratory_factor_reading(
+                                            selected_columns=items_p,
+                                            row_labels_matrix_index=lab_ld,
+                                            loadings_pca=loadings,
+                                            var_ratio=var,
+                                            loadings_efa=load_efa,
+                                            eig=eig,
+                                            n_factors_requested=nf_eff,
+                                            n_obs=len(Xnum),
+                                            pca_engine_description="PCA estándar (pearson después de tipificar respuestas).",
+                                            efa_engine_description=(
+                                                "AFE (factor_analyzer, principal/minres típico) + Varimax en datos tipificados"
+                                            ),
                                         )
                                     )
                                 except Exception as exc:
                                     st.warning(f"AFE no convergió o faltan datos: {exc}")
                                     _bloque_interpretacion_cuantitativa(
-                                        pca_explanatory(loadings, var, len(Xnum), method="PCA clásico")
+                                        pca_explanatory(
+                                            loadings,
+                                            var,
+                                            len(Xnum),
+                                            method="PCA clásico",
+                                            row_labels=lab_ld,
+                                        )
                                         + "\n\n*AFE omitido*: revisá errores previos en pantalla "
                                         "(versiones de paquetes, casos incompletos, varianzas nulas) o ejecutá sólo PCA."
+                                    )
+                                    _bloque_lectura_academica_factores(
+                                        academic_exploratory_factor_reading(
+                                            selected_columns=items_p,
+                                            row_labels_matrix_index=lab_ld,
+                                            loadings_pca=loadings,
+                                            var_ratio=var,
+                                            loadings_efa=None,
+                                            eig=None,
+                                            n_factors_requested=nf_eff,
+                                            n_obs=len(Xnum),
+                                            pca_engine_description="PCA estándar (Pearson después de tipificar respuestas).",
+                                            efa_engine_description=(
+                                                "AFE omitido tras error (ver mensaje técnico en pantalla)"
+                                            ),
+                                        )
                                     )
         
             # --- Clustering ---

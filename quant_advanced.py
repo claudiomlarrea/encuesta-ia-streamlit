@@ -39,6 +39,12 @@ def unique_short_column_labels(columns: list[str]) -> list[str]:
     return out
 
 
+def likert_matrix_key_to_original_column(columns: list[str]) -> dict[str, str]:
+    """Claves internas de `likert_numeric_matrix` ↔ nombre original de columna en el Excel."""
+    keys = unique_short_column_labels([str(c) for c in columns])
+    return dict(zip(keys, columns))
+
+
 def invert_ordinal_series(s: pd.Series) -> pd.Series:
     """
     Inverso dentro del rango observado por ítem: x' = mín + máx − x.

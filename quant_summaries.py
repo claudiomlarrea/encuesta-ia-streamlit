@@ -9,7 +9,19 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from quant_advanced import GroupComparisonResult
+from quant_advanced import GroupComparisonResult, likert_matrix_key_to_original_column
+
+from survey_intel import build_column_label_map
+
+
+def loading_row_choice_labels(columns_ordered: list[str]) -> dict[str, str]:
+    """
+    Índices de cargas PCA/AFE («clave interna por truncado + sufijo») →
+    etiquetas como en el selector («11. [resolver…»).
+    """
+    k2orig = likert_matrix_key_to_original_column(columns_ordered)
+    choice = build_column_label_map(columns_ordered)
+    return {k: choice[orig] for k, orig in k2orig.items()}
 
 
 def _esc(*parts: str) -> str:
@@ -19,6 +31,23 @@ def _esc(*parts: str) -> str:
 def _trunc(s: str, n: int = 72) -> str:
     t = str(s).replace("\n", " ").strip()
     return t if len(t) <= n else t[: n - 1] + "…"
+
+
+def _leading_common_fragment(columns: list[str], min_keep: int = 28) -> str:
+    vals = [c.replace("\n", " ").strip() for c in columns if str(c).strip()]
+    if not vals:
+        return ""
+    pref = vals[0]
+    for other in vals[1:]:
+        i = 0
+        m = min(len(pref), len(other))
+        while i < m and pref[i] == other[i]:
+            i += 1
+        pref = pref[:i]
+        if len(pref) < min_keep:
+            break
+    pref = pref.strip()
+    return pref if len(pref) >= min_keep else _trunc(vals[0], 140)
 
 
 def _p_txt(p: float) -> str:
@@ -182,17 +211,48 @@ def cronbach_explanatory(alpha: float, n_cases: int, n_items: int, warns: list[s
     return "".join(lines)
 
 
-def _top_loadings_markdown(loadings: pd.DataFrame, col: str, k: int = 3, threshold: float = 0.25) -> str:
+def _top_loading_pairs(
+    loadings: pd.DataFrame,
+    col: str,
+    k: int = 6,
+    threshold: float = 0.22,
+    row_labels: dict[str, str] | None = None,
+) -> list[tuple[str, float]]:
+    """Pares (etiqueta legible, carga ordenada por |.|)."""
     if col not in loadings.columns:
-        return ""
+        return []
     s = loadings[col].abs().sort_values(ascending=False)
-    rows = [(idx, float(loadings.loc[idx, col])) for idx in s.index[: max(k, s.shape[0])]]
-    kept = [(i, v) for i, v in rows[:k] if abs(v) >= threshold] or [(i, v) for i, v in rows[: max(2, min(k, len(rows)))]]
+    rows = [(str(idx), float(loadings.loc[idx, col])) for idx in s.index]
+    picked: list[tuple[str, float]] = []
+    for i, v in rows:
+        if abs(v) >= threshold:
+            picked.append((i, v))
+            if len(picked) >= k:
+                break
+    if not picked:
+        picked = rows[: max(2, min(k, len(rows)))]
+    out: list[tuple[str, float]] = []
+    for idx, v in picked[:k]:
+        lab = _trunc(row_labels.get(idx, idx), 92) if row_labels else _trunc(idx, 56)
+        out.append((lab, v))
+    return out
+
+
+def _top_loadings_markdown(
+    loadings: pd.DataFrame,
+    col: str,
+    k: int = 3,
+    threshold: float = 0.25,
+    row_labels: dict[str, str] | None = None,
+) -> str:
+    pairs = _top_loading_pairs(loadings, col, k=k, threshold=threshold, row_labels=row_labels)
+    if not pairs:
+        return "—"
     parts = []
-    for idx, v in kept:
+    for lab, v in pairs:
         sign = "+" if v >= 0 else ""
-        parts.append(f"«{_trunc(str(idx), 56)}» ({sign}{v:.2f})")
-    return ", ".join(parts) if parts else "—"
+        parts.append(f"«{_trunc(lab, 92)}» ({sign}{v:.2f})")
+    return ", ".join(parts)
 
 
 def pca_explanatory(
@@ -200,6 +260,7 @@ def pca_explanatory(
     var_ratio: np.ndarray,
     n_respondentes: int,
     method: str = "clásico",
+    row_labels: dict[str, str] | None = None,
 ) -> str:
     vr = np.asarray(var_ratio).ravel()
     if vr.size == 0:
@@ -216,7 +277,9 @@ def pca_explanatory(
     pcs = []
     for j in range(min(3, loadings.shape[1])):
         nm = loadings.columns[j]
-        pcs.append(f"- **{nm}**: carga destacada en {_top_loadings_markdown(loadings, nm)}.")
+        pcs.append(
+            f"- **{nm}**: carga destacada en {_top_loadings_markdown(loadings, nm, row_labels=row_labels)}."
+        )
 
     note = ""
     if vr[0] >= 0.45:
@@ -242,15 +305,18 @@ def efa_explanatory(
     n_respondentes: int,
     n_factors_requested: int,
     method_note: str = "Varimax, datos continuos estándar o matriz policórica según opción marcada.",
+    row_labels: dict[str, str] | None = None,
 ) -> str:
     lines = [
         f"AFE exploratorio solicitó **{int(n_factors_requested)}** factores; **n** = **{int(n_respondentes)}**. {method_note}",
-        "\nPor factor, destacan ítems con carga alta (|.25|‑|.40| típico exploratorio):\n\n",
+        "\nPor factor destacan cargas grandes (entre **≈0,25 y ≈0,40** suele tratarse solo como guía rápida; acá ordenamos las más altas observadas):\n",
     ]
+    fac_lines = []
     for j in range(loadings.shape[1]):
         col = loadings.columns[j]
-        top = _top_loadings_markdown(loadings, col, k=4, threshold=0.22)
-        lines.append(f"- **{col}**: {top}.")
+        top = _top_loadings_markdown(loadings, col, k=4, threshold=0.22, row_labels=row_labels)
+        fac_lines.append(f"- **{col}**: {top}.")
+    lines.append("\n" + "\n".join(fac_lines))
 
     lines.append("\n\n**Kaiser orientativo:** buscá autovalores de la correlación &gt;1 en muestras grandes; si el segundo cae rápido, quizá menos factores tienen soporte estadístico simple.")
     if eig is not None and eig[0] is not None:
@@ -262,6 +328,168 @@ def efa_explanatory(
         "\n\n*Limitación:* AFE encuentra combinaciones estadísticas de correlación; nombrarlos («utilidad práctica», etc.) sigue siendo trabajo **conceptual**, no automatizable sin el marco del estudio."
     )
     return "".join(lines)
+
+
+def _pc1_paragraph_academic(
+    loadings: pd.DataFrame,
+    row_labels: dict[str, str] | None,
+) -> str:
+    pc1 = loadings.columns[0] if loadings.shape[1] >= 1 else ""
+    if not pc1:
+        return ""
+    pairs = _top_loading_pairs(loadings, str(pc1), k=6, threshold=0.22, row_labels=row_labels)
+    if len(pairs) < 2:
+        return ""
+    pos = [(a, b) for a, b in pairs if b > 0.05][:4]
+    neg = [(a, b) for a, b in pairs if b < -0.05][:3]
+    pos_txt = ", ".join(f"**{p[0]}**" for p in pos)
+    out = (
+        f"Para **interpretar {pc1} en clave sustantiva (exploratorio)**, destacá que tras estandarización las cargas positivas muestran **co‑variación estadística positiva**. "
+        f"Las preguntas {pos_txt} **suben a la vez** en la muestra cuando se comparan personas (no implica igual «importancia práctica»: sólo coincide el patrón de respuesta). "
+        "En artículos de psicometría o educación mediática esto suele resumirse como un **primer eje instrumental** que resume dispersión correlacional antes de etiquetarlo con etiquetas causales fuertes."
+    )
+    if neg:
+        neg_txt = "; ".join(f"**{a}** (carga {b:+.2f})" for a, b in neg)
+        out += f" Ítems con carga marcada negativamente (**{neg_txt}**) mueven el eje **en sentido contrario** frente al bloque anterior: conviene chequear formulación/redacción o si están invertidas en tu protocolo."
+    return out
+
+
+def _efa_factor_paragraph(loadings_efa: pd.DataFrame, row_labels: dict[str, str] | None) -> str:
+    bullets: list[str] = []
+    for col in loadings_efa.columns:
+        prs = _top_loading_pairs(loadings_efa, col, k=4, threshold=0.38, row_labels=row_labels)
+        if len(prs) < 2:
+            prs = _top_loading_pairs(loadings_efa, col, k=5, threshold=0.26, row_labels=row_labels)
+        if len(prs) < 2:
+            continue
+        labs = "**" + "**, **".join(_trunc(p[0], 74) for p in prs[:4]) + "**"
+        vals = "; ".join(f"{p[1]:+.2f}" for p in prs[:4])
+        bullets.append(f"- `{col}` sintetiza con mayor fuerza cargas relativas sobre {labs}. Valores cargas (orden mostrado): {vals}. ")
+    return "\n".join(bullets)
+
+
+def academic_exploratory_factor_reading(
+    *,
+    selected_columns: list[str],
+    row_labels_matrix_index: dict[str, str],
+    loadings_pca: pd.DataFrame,
+    var_ratio: np.ndarray,
+    loadings_efa: pd.DataFrame | None,
+    eig: tuple[Any, ...] | None,
+    n_factors_requested: int,
+    n_obs: int,
+    pca_engine_description: str,
+    efa_engine_description: str,
+) -> str:
+    """
+    Texto tipo informe exploratorio dirigido a lector universitario no experto en factorial.
+    `row_labels_matrix_index`: claves igual a índice de cargas PCA/AFE → etiquetas estilo selector.
+    """
+    if not selected_columns or loadings_pca.empty:
+        return ""
+    vr = np.asarray(var_ratio).ravel()
+    if vr.size == 0:
+        return ""
+
+    cmap = build_column_label_map(selected_columns)
+    lista_items = "\n".join(f"- {cmap[c]}" for c in selected_columns)
+    frag = _leading_common_fragment(selected_columns)
+    bbrk = frag.rfind("[")
+    frag_show = frag[:bbrk].strip() if bbrk > 40 else frag
+
+    bloque_ctx = (
+        f"Este es un **conjunto factorial exploratorio**: **{len(selected_columns)} preguntas** Likert marcadas simultáneamente en el selector. "
+    )
+    if len(frag_show) >= 42:
+        bloque_ctx += (
+            "Comparten formulación inicial similar del formulario (reflejo habitual de «matrices» tipo Google Forms), "
+            f"por ejemplo cuando todas arrancan: «{_trunc(frag_show, 150)}». "
+            "Debajo aparece cómo cada subítem aparece etiquetado en la interfaz:"
+        )
+    else:
+        bloque_ctx += "Las formulaciones pueden ser heterogéneas; listamos los textos diferenciadores que muestra la app:"
+    bloque_ctx += f"\n\n{lista_items}\n\nTotal de personas con respuestas **completas** en estos ítems: **{int(n_obs)}**."
+
+    pca_intro = (
+        f"\n\n### ¿Qué aporta el PCA ({pca_engine_description})?\n\n"
+        f"Las componentes ordenan combinaciones que **maximizan varianza** en datos correlacionados. "
+        f"Tu **primera componente** explica aproximadamente **{100 * float(vr[0]):.1f}%** de la dispersión estándar del bloque"
+    )
+    if vr.size >= 2:
+        pca_intro += f"; junto con la segunda suman **{100 * float(vr[0] + vr[1]):.1f}%**"
+    pca_intro += "."
+    pc1_txt = _pc1_paragraph_academic(loadings_pca, row_labels_matrix_index)
+    pca_intro += "\n\n" + pc1_txt if pc1_txt else ""
+
+    if loadings_efa is None:
+        tails = (
+            "\n\n### Límites formales para publicación\n\n"
+            "- Esta lectura sirve como **primer paso técnico**; no equivale todavía a un modelo de ecuaciones estructurales confirmatorio.\n"
+            "- Los ítems se tratan como **continua ordinalizada** mediante la rutina previa.\n\n"
+            "Si necesitás texto para marco estadístico, citá método explícito (**PCA**) y tamaño muestral antes de extrapolar causalidad."
+        )
+        return "### Lectura académica exploratoria (referida al mismo bloque seleccionado)\n\n" + bloque_ctx + pca_intro + tails
+
+    kaiser_txt = ""
+    if eig is not None and eig[0] is not None:
+        ev = np.asarray(eig[0]).ravel()
+        if ev.size >= 1:
+            kaiser_txt = (
+                f"\n\n### ¿Qué sugiere el patrón de autovalores (antes de etiquetar factores sociológicos)?\n\n"
+                f"- Primer valor propio habitual del motor factorial: **{ev[0]:.2f}**."
+            )
+            if ev.size >= 2:
+                kaiser_txt += f"\n- Segundo: **{ev[1]:.2f}**."
+                if ev.size >= 3:
+                    kaiser_txt += f" Tercero: **{ev[2]:.2f}**…"
+            above1 = int(np.sum(ev >= 1.0))
+            nf = int(n_factors_requested)
+            if above1 <= 1 and nf >= 3:
+                kaiser_txt += (
+                    "\n\nCon la **regla Kaiser** habitual (solo heurística cuando la muestra crece)"
+                    ", muchos revisores observan pocas razones estadísticas fuertes para **tres o más dimensiones nuevas**, "
+                    f"cuando apenas **uno** autovalor queda típicamente sobre 1. Aquí solicitaste **{nf}** factores: "
+                    "podés hacerlo exploratoriamente pero **nombre semánticos** («dimensión A/B») deberían sostenerse con teoría o CFA posterior."
+                )
+            elif above1 >= nf >= 2:
+                kaiser_txt += (
+                    f"\n\nAparecen **{above1}** raíces ≥1 ⇒ el número factorial exploratorio plausible podría alinearse mejor con ese conteo estadístico, "
+                    f"compatibilizándolo después con **{efa_engine_description}**."
+                )
+            else:
+                kaiser_txt += (
+                    "\n\nEl primer autovalor domina ⇒ la mayor parte de correlaciones comparte un denominador estadístico común antes de subdividir ejes posteriores."
+                )
+
+    efa_body = (
+        f"\n\n### Lectura cualitativa de los factores rotados (**{efa_engine_description}**)\n\n"
+        "**Varimax** favorece interpretabilidad porque intenta producir pocas cargas fuertes y muchas cercanas a cero dentro de cada columna factorial, "
+        "asumiendo ejes estadísticos **sin correlacionar entre sí** después de rotar."
+        "\n\n"
+        "**Síntesis por factor (solo con base en tus datos y las etiquetas de las preguntas):**\n\n"
+        + _efa_factor_paragraph(loadings_efa, row_labels_matrix_index)
+        + (
+            "\n\nEn artículos suelen describir estos grupos como **facetas instrumentales distintas dentro del mismo objeto de preguntamiento**. "
+            "Es decir: no probaste todavía un modelo bifactorial confirmatorio pero ya podés caracterizar cómo tus encuestados **coactivan correlativamente "
+            "las alternativas** listadas tras el encabezado común del formulario."
+        )
+        + ("\n\n" + kaiser_txt if kaiser_txt else "")
+    )
+
+    disclaim = (
+        "\n\n### Deberías documentar después en un trabajo académico\n\n"
+        "- Especificación **EFA vs CFA** explícita, estimador (factores continuos ordinarios vs modelo de respuesta categorial / WLSMV). \n"
+        "- Que esto es una **captura estadística dentro de esta app**, no equivalencia causal de «dimensiones percibidas».\n\n"
+        "Si estos ítems miden prácticas con IA declaradas como similares textualmente pero distintos subítems, recordá mencionarlo antes de extrapolar comportamiento real más allá de la declaración autopercibida del cuestionario."
+    )
+
+    return (
+        "### Lectura académica exploratoria (referida al mismo bloque seleccionado)\n\n"
+        + bloque_ctx
+        + pca_intro
+        + efa_body
+        + disclaim
+    )
 
 
 def clustering_explanatory(
