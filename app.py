@@ -142,7 +142,18 @@ def _load_sentiment_pipeline():
 
 def load_table(uploaded: Any, path: str | None) -> tuple[pd.DataFrame, str]:
     if uploaded is not None:
+        # Cada rerun del script reutiliza el mismo UploadedFile; sin rebobinar,
+        # .read() puede devolver b'' y vaciar la sesión si el except global borra loaded_df.
+        try:
+            uploaded.seek(0)
+        except (OSError, AttributeError, io.UnsupportedOperation):
+            pass
         raw = uploaded.read()
+        if not raw:
+            raise ValueError(
+                "No se pudieron leer bytes del archivo subido (buffer vacío). "
+                "Probá «Quitar archivo» y volvé a subirlo."
+            )
         bio = io.BytesIO(raw)
         df = pd.read_excel(bio)
         return df, uploaded.name
@@ -230,19 +241,34 @@ def main() -> None:
         topic_k = st.slider("Cantidad de temas (NMF)", 3, 10, 5)
 
     load_error: str | None = None
+    path_load_warning: str | None = None
     try:
         if up is not None:
             df_new, fname_new = load_table(up, None)
             st.session_state.loaded_df = df_new
             st.session_state.loaded_name = fname_new
         elif manual_path.strip():
-            df_new, fname_new = load_table(None, manual_path.strip())
-            st.session_state.loaded_df = df_new
-            st.session_state.loaded_name = fname_new
+            try:
+                df_new, fname_new = load_table(None, manual_path.strip())
+                st.session_state.loaded_df = df_new
+                st.session_state.loaded_name = fname_new
+            except Exception as pe:
+                # En la nube una ruta tipo /Users/... falla; no borrar un Excel ya cargado por subida.
+                path_load_warning = str(pe)
+                if st.session_state.loaded_df is None:
+                    st.session_state.loaded_df = None
+                    st.session_state.loaded_name = None
+                    load_error = path_load_warning
     except Exception as e:
         load_error = str(e)
         st.session_state.loaded_df = None
         st.session_state.loaded_name = None
+
+    if path_load_warning and st.session_state.loaded_df is not None:
+        st.sidebar.caption(
+            "La ruta del cuadro «O ruta local al Excel» no es legible en este servidor (típico en la nube); "
+            "se **mantienen** los datos de la sesión. Usá «Subí el Excel» o corregí la ruta si corrés en tu PC."
+        )
 
     if load_error:
         st.error(f"No se pudo leer el archivo: {load_error}")
