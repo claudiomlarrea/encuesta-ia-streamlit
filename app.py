@@ -43,6 +43,11 @@ from quant_advanced import (
     run_pca_with_loadings,
     shap_summary_figure,
 )
+from qualitative_deep import (
+    deep_discourse_markdown,
+    deep_sentiment_markdown,
+    deep_thematic_markdown,
+)
 from survey_intel import (
     ColumnProfile,
     SentimentModel,
@@ -53,9 +58,6 @@ from survey_intel import (
     kwic_snippets,
     lexicon_sentiment_es,
     ngram_top_table,
-    qualitative_synthesis_discourse,
-    qualitative_synthesis_sentiment,
-    qualitative_synthesis_thematic,
     thematic_nmf,
 )
 
@@ -830,14 +832,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="temas_nmf_por_respuesta.csv",
                             mime="text/csv",
                         )
-                        st.markdown("##### Síntesis de conclusiones (~100 palabras)")
-                        st.write(
-                            qualitative_synthesis_thematic(
+                        st.markdown("---")
+                        st.markdown(
+                            deep_thematic_markdown(
                                 q_label,
                                 topics,
                                 dominant,
-                                len(texts_nmf),
-                                topic_k,
+                                quotes,
+                                texts_nmf,
                             )
                         )
                     else:
@@ -845,14 +847,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             "No se extrajeron temas estables: pocas respuestas largas, texto muy repetido o "
                             "vocabulario demasiado disperso. Probá más respuestas o bajá la cantidad de temas en la barra lateral."
                         )
-                        st.markdown("##### Síntesis de conclusiones (~100 palabras)")
-                        st.write(
-                            qualitative_synthesis_thematic(
+                        st.markdown("---")
+                        st.markdown(
+                            deep_thematic_markdown(
                                 q_label,
                                 [],
                                 [],
-                                0,
-                                topic_k,
+                                {},
+                                [],
                             )
                         )
 
@@ -916,12 +918,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         if used_hf
                         else "léxico en español basado en listas orientativas"
                     )
-                    st.markdown("##### Síntesis de conclusiones (~100 palabras)")
-                    st.write(
-                        qualitative_synthesis_sentiment(
+                    st.markdown("---")
+                    st.markdown(
+                        deep_sentiment_markdown(
                             q_label,
+                            filtered,
+                            results,
                             dist,
-                            metodo=metodo_sent,
+                            metodo_sent,
                         )
                     )
 
@@ -961,10 +965,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             for h in kwic_hits:
                                 st.markdown(f"- {h}")
 
-                    st.markdown("##### Síntesis de conclusiones (~100 palabras)")
-                    st.write(
-                        qualitative_synthesis_discourse(
+                    st.markdown("---")
+                    st.markdown(
+                        deep_discourse_markdown(
                             q_label,
+                            filtered,
                             bi,
                             tri,
                             needle or "",
