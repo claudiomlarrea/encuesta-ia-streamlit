@@ -20,6 +20,25 @@ def column_key_short(name: str, max_len: int = 64) -> str:
     return str(name).replace("\n", " ").strip()[:max_len]
 
 
+def unique_short_column_labels(columns: list[str]) -> list[str]:
+    """
+    Etiquetas cortas para matrices; evita colisiones cuando muchas columnas comparten
+    un prefijo largo (formularios) y todas truncan igual en column_key_short.
+    """
+    used: set[str] = set()
+    out: list[str] = []
+    for raw in columns:
+        base = column_key_short(str(raw))
+        cand = base
+        n = 0
+        while cand in used:
+            n += 1
+            cand = f"{base}__{n}"
+        used.add(cand)
+        out.append(cand)
+    return out
+
+
 def invert_ordinal_series(s: pd.Series) -> pd.Series:
     """
     Inverso dentro del rango observado por ítem: x' = mín + máx − x.
@@ -941,7 +960,8 @@ def likert_numeric_matrix(
 ) -> pd.DataFrame:
     inverted_cols = inverted_cols or set()
     pieces: dict[str, pd.Series] = {}
-    for c in cols:
+    keys = unique_short_column_labels([str(c) for c in cols])
+    for c, key in zip(cols, keys, strict=True):
         code, scheme = detect_best_ordinal(df[c], min_cover=0.28)
         if scheme.startswith("no"):
             num_try = pd.to_numeric(df[c], errors="coerce")
@@ -951,7 +971,7 @@ def likert_numeric_matrix(
                 code = series_to_likert_numeric(df[c])
         if c in inverted_cols:
             code = invert_ordinal_series(code)
-        pieces[column_key_short(c)] = code
+        pieces[key] = code
     return pd.DataFrame(pieces)
 
 

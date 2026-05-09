@@ -565,6 +565,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             for w in warns_cron:
                                 st.info(w)
                             alpha = cronbach_alpha(mat)
+                            if np.isnan(alpha):
+                                st.warning(
+                                    "α no es calculable con esta matriz (pocas filas completas, varianza total nula o ítems casi constantes tras codificar)."
+                                )
                             st.metric(
                                 "Alfa de Cronbach",
                                 f"{alpha:.3f}",
