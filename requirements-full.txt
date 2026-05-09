@@ -1,0 +1,7 @@
+# Uso local: modelos Hugging Face, XGBoost y SHAP (no usado por defecto en Cloud).
+-r requirements.txt
+xgboost>=2.0.0
+shap>=0.44.0
+transformers>=4.36.0
+torch>=2.0.0
+safetensors>=0.4.0

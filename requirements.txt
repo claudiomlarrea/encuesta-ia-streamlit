@@ -1,3 +1,5 @@
+# Dependencias mínimas para Streamlit Community Cloud (instalación rápida, sin Torch).
+# Funciones locales con ML extra: ver requirements-full.txt
 streamlit>=1.28.0
 pandas>=2.0.0
 openpyxl>=3.1.0
@@ -7,9 +9,4 @@ scipy>=1.10.0
 scikit-learn>=1.3.0
 matplotlib>=3.8.0
 factor-analyzer>=0.5.1
-xgboost>=2.0.0
-shap>=0.44.0
 semopy>=2.4.0
-transformers>=4.36.0
-torch>=2.0.0
-safetensors>=0.4.0

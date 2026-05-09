@@ -2,13 +2,20 @@
 
 Carga respuestas en Excel (formularios tipo Google Forms), clasifica ítems en **estructurados** vs **abiertos** y ejecuta un bloque amplio de **cuantitativo**: descriptivos, cruces con χ² y Cramér V, pruebas (t Welch, Mann–Whitney, ANOVA, Kruskal–Wallis), Alfa de Cronbach, PCA/AFE con Varimax, K‑means / DBSCAN / jerárquico, modelos (logística, árboles, Random Forest, XGBoost) con **SHAP**, CFA simplificado con **semopy**. Incluye además temas (**NMF**) y **sentimiento** en español (RoBERTuito o léxico de respaldo).
 
+## Streamlit Cloud
+
+El archivo `requirements.txt` incluye sólo paquetes ligeros (sin PyTorch/transformers/XGBoost/SHAP) para que el despliegue en [Community Cloud](https://streamlit.io/cloud) no falle por tiempo de instalación ni memoria. Tras hacer push en `main`, en la app pulsá **Manage app** si algo sigue fallando y leé el terminal.
+
+Versión de Python para Cloud: `runtime.txt` (3.11).
+
 ## Uso local
 
 ```bash
 cd encuesta-ia-streamlit
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-full.txt   # SHAP, XGBoost y sentimiento HF
+# o sólo núcleo: pip install -r requirements.txt
 streamlit run app.py
 ```
 

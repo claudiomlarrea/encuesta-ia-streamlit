@@ -667,7 +667,14 @@ def fit_predictive_suite(
 
 def shap_summary_figure(model: Any, X_sample: pd.DataFrame, multiclass_class: int | None = None):
     import matplotlib.pyplot as plt
-    import shap
+
+    try:
+        import shap
+    except ImportError as exc:
+        raise ImportError(
+            "Paquete 'shap' no instalado (en Cloud no va en requirements.txt). "
+            "Localmente: pip install shap o pip install -r requirements-full.txt"
+        ) from exc
 
     plt.ioff()
 
