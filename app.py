@@ -43,6 +43,17 @@ from quant_advanced import (
     run_pca_with_loadings,
     shap_summary_figure,
 )
+from quant_summaries import (
+    chi_square_explanatory,
+    clustering_explanatory,
+    cronbach_explanatory,
+    descriptive_explanatory,
+    efa_explanatory,
+    group_comparison_explanatory,
+    pca_explanatory,
+    predictive_explanatory,
+    cfa_explanatory_short,
+)
 from qualitative_deep import (
     deep_discourse_markdown,
     deep_sentiment_markdown,
@@ -67,6 +78,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+def _bloque_interpretacion_cuantitativa(texto_md: str) -> None:
+    st.markdown("---")
+    st.markdown("##### Interpretación orientativa")
+    st.caption(
+        "El texto siguiente se arma **solo** con los valores mostrados arriba (sin IA generativa). "
+        "Complementalo con el marco teórico del estudio y, si corresponde, asesoría estadística institucional."
+    )
+    st.markdown(texto_md)
+
 
 MAIN_TABS_ORDER = [
     "Resumen de ítems",
@@ -470,6 +491,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="frecuencias.csv",
                             mime="text/csv",
                         )
+                        _bloque_interpretacion_cuantitativa(descriptive_explanatory(desc, ft))
         
             # --- χ² ---
             if "2. Cruces + χ²" in Q:
@@ -497,6 +519,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         st.write(
                             f"χ² = {out['chi2']:.3f}, gl = {out['gl']}, p = {out['p_valor']:.4f}, "
                             f"Cramér V = {out['cramers_v']:.3f}, n = {out['n']}"
+                        )
+                        _bloque_interpretacion_cuantitativa(
+                            chi_square_explanatory(
+                                chi2=out["chi2"],
+                                gl=out["gl"],
+                                p_valor=out["p_valor"],
+                                cramers_v=out["cramers_v"],
+                                n=out["n"],
+                                row_lab=_fmt_analysis_col(rcol),
+                                col_lab=_fmt_analysis_col(ccol),
+                            )
                         )
         
             # --- Significancia grupal ---
@@ -543,6 +576,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             else "**Kruskal–Wallis** no disponible."
                         )
                         st.markdown(anova_txt + "  \n" + kw_txt)
+                        _bloque_interpretacion_cuantitativa(
+                            group_comparison_explanatory(res, _fmt_analysis_col(ycol), _fmt_analysis_col(gcol))
+                        )
         
             # --- Cronbach ---
             if "4. Alfa Cronbach" in Q:
@@ -558,6 +594,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         mat = likert_numeric_matrix(df_work, items_c, inverted_cols=invert_set).dropna(how="any")
                         if len(mat) < 20:
                             st.warning("Muy pocos casos completos tras listwise deletion.")
+                            _bloque_interpretacion_cuantitativa(
+                                f"Hay **{len(mat)}** filas completas sobre **{mat.shape[1]}** ítems. "
+                                "Con pocas personas respondiendo todas las preguntas del bloque, el **α de Cronbach** suele fluctuar tanto que "
+                                "no lo mostramos de forma destacada: preferí aumentar la tasa de respuesta, filtrar la cohorte donde el bloque esté más completo "
+                                "o agrupar dimensiones relacionadas después de chequear outliers de omisión."
+                            )
                         else:
                             rep_cron, warns_cron = ordinal_scaling_report(mat)
                             st.markdown("##### Escala efectiva por ítem")
@@ -576,6 +618,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             )
                             st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
                             st.dataframe(mat.describe().T, use_container_width=True)
+                            _bloque_interpretacion_cuantitativa(
+                                cronbach_explanatory(alpha, len(mat), mat.shape[1], warns_cron)
+                            )
                     else:
                         st.info("Seleccioná al menos dos ítems de la misma escala.")
         
@@ -626,6 +671,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             st.info(w)
                         if len(Xnum) < 40:
                             st.warning("Necesitas más observaciones completas para factores estables.")
+                            _pca_intro = (
+                                f"Seleccionaste **{Xnum.shape[1]}** ítems sobre **{len(Xnum)}** encuestados con datos completos en ese bloque. "
+                                "La tabla de escala muestra niveles efectivos tras la codificación automática por ítem. "
+                                "**PCA y AFE** no se ejecutan con menos de 40 filas por consistencia muestral habitual en esta vista."
+                            )
+                            if warns_pca:
+                                _bits = "; ".join([w[:220] for w in warns_pca[:3]])
+                                _pca_intro += "\n\n**Avisos de escala:** " + _bits
+                                if len(warns_pca) > 3:
+                                    _pca_intro += "…"
+                            _bloque_interpretacion_cuantitativa(_pca_intro)
                         else:
                             n_pc_eff = min(int(n_pc), Xnum.shape[1])
                             nf_eff = min(int(nf), max(2, Xnum.shape[1] - 1))
@@ -659,6 +715,20 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     st.code(lavaan_export_snippet(latent_lavaan, sane_names, len(Xnum)), language="r")
                                     with st.expander("Matriz policórica (vista rápida, nombres originales abreviados)"):
                                         st.dataframe(R_poly.round(4), use_container_width=True)
+                                    _bloque_interpretacion_cuantitativa(
+                                        pca_explanatory(loadings_pca, var_pc, len(Xnum), method="policórica")
+                                        + "\n\n---\n\n"
+                                        + efa_explanatory(
+                                            load_efa,
+                                            eig,
+                                            len(Xnum),
+                                            nf_eff,
+                                            method_note=(
+                                                "Rotación **Varimax**, factores desde **correlaciones policóricas** "
+                                                "(mejor vínculo con ítems ordinales; requiere **semopy**)."
+                                            ),
+                                        )
+                                    )
                                 except Exception as exc:
                                     st.warning(f"No se pudo usar la policórica ({exc}). Se muestra método clásico (Pearson/sklearn).")
                                     ran_poly = False
@@ -680,8 +750,26 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             "Autovalores (AFE): "
                                             + ", ".join(f"{v:.2f}" for v in ev_fallback[: min(8, ev_fallback.size)])
                                         )
+                                    _bloque_interpretacion_cuantitativa(
+                                        pca_explanatory(loadings, var, len(Xnum), method="PCA clásico")
+                                        + "\n\n---\n\n"
+                                        + efa_explanatory(
+                                            load_efa,
+                                            eig,
+                                            len(Xnum),
+                                            nf_eff,
+                                            method_note=(
+                                                "**Varimax**, factores tras estandarización de respuestas (tratamiento ordinal continuado)."
+                                            ),
+                                        )
+                                    )
                                 except Exception as exc:
                                     st.warning(f"AFE no convergió o faltan datos: {exc}")
+                                    _bloque_interpretacion_cuantitativa(
+                                        pca_explanatory(loadings, var, len(Xnum), method="PCA clásico")
+                                        + "\n\n*AFE omitido*: revisá errores previos en pantalla "
+                                        "(versiones de paquetes, casos incompletos, varianzas nulas) o ejecutá sólo PCA."
+                                    )
         
             # --- Clustering ---
             if "6. Clustering" in Q:
@@ -708,18 +796,43 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.dataframe(centers.round(2), use_container_width=True)
                                 vc = lbl.value_counts().sort_index().rename_axis("cluster").reset_index(name="n")
                                 st.dataframe(vc, hide_index=True)
+                                _bloque_interpretacion_cuantitativa(
+                                    clustering_explanatory(
+                                        "K-means",
+                                        k=k,
+                                        inertia=inertia,
+                                        vc=vc,
+                                        n_feats=len(feat_c),
+                                        n_obs=len(Xf),
+                                    )
+                                )
                             elif mode == "DBSCAN":
                                 eps = st.slider("eps", 0.3, 2.5, 0.85, step=0.05)
                                 ms = st.slider("min_samples", 3, 20, 7)
                                 lbl, noise_rate, _ = dbscan_profiles(Xf, eps, ms)
                                 st.metric("Observaciones ruido (-1)", f"{noise_rate*100:.1f}%")
                                 st.dataframe(lbl.value_counts().rename_axis("cluster").reset_index(name="n"))
+                                _bloque_interpretacion_cuantitativa(
+                                    clustering_explanatory(
+                                        "DBSCAN",
+                                        noise_rate=noise_rate,
+                                        n_feats=len(feat_c),
+                                        n_obs=len(Xf),
+                                    )
+                                )
                             else:
                                 st.warning("Jerárquico: sólo muestra hasta 120 respondentes seleccionados al azar (legibilidad).")
                                 samp = Xf.sample(min(120, len(Xf)), random_state=7)
                                 fig = hierarchical_linkage_plot(samp)
                                 st.pyplot(fig)
                                 plt.close(fig)
+                                _bloque_interpretacion_cuantitativa(
+                                    clustering_explanatory(
+                                        "Jerárquico (dendrograma)",
+                                        n_feats=len(feat_c),
+                                        n_obs=len(samp),
+                                    )
+                                )
                     else:
                         st.info("Elegí al menos dos variables.")
         
@@ -755,10 +868,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             y_series = y_series.loc[Xm.index]
                             try:
                                 res, _ = fit_predictive_suite(Xm, y_series)
+                                pred_acc_tbl = pd.DataFrame(
+                                    [{"modelo": k, "accuracy_val": round(v["accuracy"], 3)} for k, v in res.items()]
+                                )
                                 st.dataframe(
-                                    pd.DataFrame(
-                                        [{"modelo": k, "accuracy_val": round(v["accuracy"], 3)} for k, v in res.items()]
-                                    ),
+                                    pred_acc_tbl,
                                     hide_index=True,
                                     use_container_width=True,
                                 )
@@ -782,6 +896,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     plt.close(fig)
                                 except Exception as exc:
                                     st.warning(f"SHAP omitido: {exc}")
+                                interp_pred = predictive_explanatory(pred_acc_tbl, model_key if model_key else shap_pick)
+                                if interp_pred:
+                                    _bloque_interpretacion_cuantitativa(interp_pred)
                             except Exception as exc:
                                 st.error(str(exc))
                     else:
@@ -804,6 +921,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         )
                         if model is None:
                             st.warning(err or "No se pudo estimar el CFA.")
+                            msg_cfa = str(err or "No se pudo estimar.")
+                            _bloque_interpretacion_cuantitativa(
+                                f"**CFA no ejecutado:** {msg_cfa[:380]}"
+                                "\n\nEn instalaciones mínimas (p. ej. Community Cloud sin `semopy`), usá CFA localmente con `-r requirements-full.txt` "
+                                "o bien exportá la matriz de correlaciones hacia **lavaan**/R."
+                            )
                         else:
                             st.success("Modelo estimado.")
                             st.dataframe(tabla.head(), use_container_width=True)
@@ -814,6 +937,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.dataframe(stat_df, use_container_width=True)
                             except Exception as exc:
                                 st.caption(f"Métricas globales desde semopy no disponibles: {exc}")
+                            _bloque_interpretacion_cuantitativa(cfa_explanatory_short())
                     else:
                         st.info("Seleccioná tres o más ítems para especificar la ecuación de medición.")
         
