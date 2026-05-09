@@ -87,7 +87,9 @@ def _alpha_interpret(alpha: float) -> str:
 
 
 def descriptive_explanatory(desc: dict, ft: pd.DataFrame | None = None, top_categories: int = 4) -> str:
-    out: list[str] = []
+    out: list[str] = [
+        "### Lectura cualitativa muestral (Distribución declarada por categoría declarada).\n\n"
+    ]
     n = desc.get("n_no_na") or desc.get("n", 0)
     out.append(_esc(f"Hay **{int(n)}** respuestas no vacías sobre **{int(desc.get('n_categorías', 0))}** categorías distintas. "))
     modo = desc.get("moda_etiqueta") or ""
@@ -128,6 +130,103 @@ def descriptive_explanatory(desc: dict, ft: pd.DataFrame | None = None, top_cate
     return "".join(out)
 
 
+def chi_square_table_qualitative_reading(
+    tabla: pd.DataFrame,
+    *,
+    row_dim: str,
+    col_dim: str,
+    max_levels_per_row: int = 8,
+) -> str:
+    """
+    Narrativa muestral línea a línea: dentro de cada categoría fila resume reparto sobre columnas.
+    """
+    if tabla is None or tabla.empty:
+        return ""
+    if tabla.shape[0] < 1 or tabla.shape[1] < 1:
+        return ""
+
+    rl = _trunc(row_dim, 88)
+    cl = _trunc(col_dim, 88)
+    intro = (
+        f"### Lectura cualitativa muestral (**{rl}** en filas × **{cl}** en columnas)\n\n"
+        "Construida **solo** con los **conteos** de la tabla. Los **porcentajes son dentro de cada fila** "
+        "(cómo se reparte «**"
+        + cl
+        + "» dentro de ese subgrupo de «**"
+        + rl
+        + "»**). Describe **solo esta muestra** cargada — **sin inferencia causa** sobre población objetivo fuera del archivo.\n"
+    )
+
+    bullets: list[str] = []
+    tiny_row_thr = 15
+    dominance_thr = 0.73
+
+    for idx in tabla.index:
+        sr = tabla.loc[idx].astype(float)
+        n_row = int(sr.sum())
+        if n_row <= 0:
+            continue
+        row_lbl = _trunc(str(idx), 92)
+        sorted_s = sr.sort_values(ascending=False)
+        nonempty = [(str(c), float(v)) for c, v in sorted_s.items() if float(v) > 0.0]
+
+        dominant = ""
+        if nonempty:
+            top_c, top_v = nonempty[0]
+            top_pct = 100.0 * top_v / n_row if n_row > 0 else 0.0
+            if top_pct >= 100 * dominance_thr and len(nonempty) > 1:
+                dominant = (
+                    f"Hay **muy alta proporción declarada en «{_trunc(top_c, 56)}»** (**{top_pct:.1f}%**, n={int(top_v)}). "
+                )
+            elif len(nonempty) == 1 and len(sr) >= 2:
+                dominant = (
+                    f"Todos los casos de la fila se concentran en **«{_trunc(top_c, 56)}»** (n={int(top_v)}); "
+                    f"las demás categorías tienen **0** en esa fila muestral. "
+                )
+
+        frac_bits: list[str] = []
+        for j, (cn, fv) in enumerate(nonempty[:max_levels_per_row]):
+            pct = 100.0 * fv / n_row
+            frac_bits.append(f"«{_trunc(cn, 54)}»: n={int(fv)} (**{pct:.1f}%** del subgrupo)")
+
+        if len(nonempty) > max_levels_per_row:
+            extra = sum(v for _, v in nonempty[max_levels_per_row:])
+            frac_bits.append(
+                f"_…(+{len(nonempty) - max_levels_per_row} categorías más, n_total_añ={int(extra)})_"
+            )
+
+        zero_cols = [str(c) for c, v in sr.items() if float(v) == 0]
+        zeros_note = ""
+        if zero_cols and len(zero_cols) <= len(sr) - 1:
+            zs = [_trunc(z, 40) for z in zero_cols[:4]]
+            tail = ""
+            if len(zero_cols) > 4:
+                tail = f" (+{len(zero_cols) - 4} niveles más con n=0)."
+            zeros_note = f" **Sin casos declarados:** {', '.join(zs)}{tail}"
+
+        caveat = ""
+        if n_row < tiny_row_thr:
+            caveat += f" (**Sub‑fila muestral pequeña**, n={n_row}; cualitativo muy **preliminar**.)"
+
+        line = (
+            f"- **{row_lbl}** — **{n_row}** personas válidas en la tabla: "
+            + dominant
+            + ("; ".join(frac_bits) if frac_bits else "_sin valores positivos tras filtro._")
+            + "."
+        )
+        if zeros_note:
+            line += zeros_note
+        if caveat:
+            line += caveat
+        bullets.append(line)
+
+    foot = (
+        "\n\n*Alerta método χ²*: si aparecen **muchas celdas con muy bajas esperadas**, el estadístico global puede "
+        "**subestimar o inestabilizar significancia**, pero estos bullets siguen válidos como **lectura exploratoria**."
+    )
+    return intro + "\n".join(bullets) + foot
+
+
 def chi_square_explanatory(
     *,
     chi2: float,
@@ -137,6 +236,7 @@ def chi_square_explanatory(
     n: int,
     row_lab: str,
     col_lab: str,
+    tabla: pd.DataFrame | None = None,
 ) -> str:
     if not (chi2 == chi2) or gl < 1:
         return (
@@ -161,15 +261,63 @@ def chi_square_explanatory(
         assoc = (
             "**No hay evidencia clara** contra la independencia entre filas y columnas en esta tabla (α habitual 0,05).\n\n" + cram
         )
-    return (
+    base = (
         f"Con **n = {int(n)}** casos válidos ({_trunc(row_lab, 48)} × {_trunc(col_lab, 48)}):\n\n"
         f"- χ² = **{chi2:.3f}**, gl = **{gl}**, p = {_p_txt(p_valor)}\n"
         f"- {p_clar}\n\n"
         f"{assoc}"
     )
+    if tabla is None or tabla.empty:
+        return base
+    qual = chi_square_table_qualitative_reading(
+        tabla.copy(),
+        row_dim=_trunc(row_lab, 120),
+        col_dim=_trunc(col_lab, 120),
+    )
+    return base + "\n\n---\n\n" + qual
 
 
-def group_comparison_explanatory(res: GroupComparisonResult, y_lab: str, g_lab: str) -> str:
+def group_comparison_sample_qualitative_reading(sample: pd.DataFrame, *, y_lab: str, g_lab: str) -> str:
+    """
+    ``sample`` con columnas exactas ``y`` (ordinal numérico contínuo) y ``g`` (clave grupo).
+    """
+    if sample is None or sample.empty or "y" not in sample.columns or "g" not in sample.columns:
+        return ""
+    n_tot = len(sample)
+    parts = [
+        "### Lectura cualitativa muestral (comparación de grupos)\n",
+        f"Variable ordinal inferida (**{_trunc(y_lab, 92)}**) según grupos (**{_trunc(g_lab, 92)}**) "
+        "sobre los **n = "
+        + str(int(n_tot))
+        + "** casos completos tras la codificación ordinal y el cruce grupo‑respuesta seleccionadas.\n\n",
+    ]
+    for g_name in sorted(sample["g"].astype(str).unique()):
+        grp = sample.loc[sample["g"].astype(str) == g_name]
+        ng = len(grp)
+        yv = grp["y"].dropna().astype(float)
+        if ng == 0 or yv.empty:
+            continue
+        mean = float(yv.mean())
+        med = float(yv.median())
+        pct = 100.0 * ng / n_tot if n_tot else 0.0
+        parts.append(
+            f"- Grupo «**{_trunc(str(g_name), 74)}»**: **n = {ng}** (**{pct:.1f}%** del total efectivo comparado); "
+            f"media ordinal **≈ {mean:.2f}**, mediana **≈ {med:.2f}**. "
+            "Valores grandes implican **mayor grado medio** dentro del esquema inferido tras la ordenación ordinal automática por columna ítem.\n"
+        )
+    parts.append(
+        "\n*Complementá* con los **coeficientes p** informados más arriba (Welch / Mann–Whitney / ANOVA / Kruskal‑Wallis) para declarar evidencia estadística formal sobre diferencias agrupadas."
+    )
+    return "".join(parts)
+
+
+def group_comparison_explanatory(
+    res: GroupComparisonResult,
+    y_lab: str,
+    g_lab: str,
+    *,
+    sample: pd.DataFrame | None = None,
+) -> str:
     lines = [
         f"Comparación de **{_trunc(y_lab, 56)}** según **{_trunc(g_lab, 56)}**.",
         f"- Grupos **k = {res.n_groups}**, tamaños: {res.group_sizes}.",
@@ -199,10 +347,40 @@ def group_comparison_explanatory(res: GroupComparisonResult, y_lab: str, g_lab: 
     lines.append(
         "\n*Recordatorio:* la codificación ordinal es **inferida** automáticamente; validá trato de categorías e ítems invertidos en el panel superior."
     )
-    return "\n".join(lines)
+    core = "\n".join(lines)
+    if sample is not None:
+        sq = group_comparison_sample_qualitative_reading(sample, y_lab=y_lab, g_lab=g_lab)
+        if sq.strip():
+            return core + "\n\n---\n\n" + sq
+    return core
 
 
-def cronbach_explanatory(alpha: float, n_cases: int, n_items: int, warns: list[str] | None) -> str:
+def cronbach_qualitative_reading(mat: pd.DataFrame) -> str:
+    if mat.empty or mat.shape[1] < 1:
+        return ""
+    desc = mat.describe().loc[["mean", "std", "min", "max"]].T.astype(float).round(3)
+    parts = ["### Lectura cualitativa muestral — **promedios ordinales por ítem** (matriz Cronbach, casos sin faltantes).\n\n"]
+    for col in desc.index.astype(str):
+        r = desc.loc[col]
+        sd = float(r["std"]) if pd.notna(r["std"]) else float("nan")
+        sd_txt = f"{sd:.2f}" if sd == sd else "—"
+        parts.append(
+            f"- **{_trunc(col, 88)}**: media muestral ordinal **≈ {float(r['mean']):.2f}** "
+            f"(desv típica {sd_txt}); "
+            f"rango muestral efectivo observable **[{float(r['min']):.2f}, {float(r['max']):.2f}]** en casos _list‑wise_.\n"
+        )
+    parts.append("\nContrastá estos promedios con la **tabla de escala efectiva** y las advertencias mostradas arriba antes de usar α en inferencias formales.")
+    return "".join(parts)
+
+
+def cronbach_explanatory(
+    alpha: float,
+    n_cases: int,
+    n_items: int,
+    warns: list[str] | None,
+    *,
+    mat: pd.DataFrame | None = None,
+) -> str:
     lines = [
         f"Matriz lista con **{n_cases}** encuestados y **{n_items}** ítems (casos completos, listwise).",
         _alpha_interpret(alpha),
@@ -212,7 +390,12 @@ def cronbach_explanatory(alpha: float, n_cases: int, n_items: int, warns: list[s
         lines.append("\n\n**Advertencias emitidas:** " + "; ".join(_trunc(w, 140) for w in warns[:4]))
         if len(warns) > 4:
             lines.append(f" (+{len(warns)-4} más).")
-    return "".join(lines)
+    core = "".join(lines)
+    if mat is not None and not mat.empty:
+        cq = cronbach_qualitative_reading(mat)
+        if cq.strip():
+            return core + "\n\n---\n\n" + cq
+    return core
 
 
 def _top_loading_pairs(
@@ -289,6 +472,7 @@ def pca_explanatory(
     if vr[0] >= 0.45:
         note = "\n\nLa primera componente domina bastante parte de la varianza conjunta → revisá redundancia conceptual entre preguntas o un único tema transversal."
     return (
+        "### Lectura cualitativa muestral (PCA sobre casos sin faltantes en el bloque).\n\n"
         f"PCA **{method_txt}**, **n** = **{int(n_respondentes)}** encuestados con datos completos en los ítems elegidos.\n\n"
         f"- **PC1** explica ~**{100*vr[0]:.1f}%** de la varianza total;"
         + (f" **PC1+PC2** acumulan ~**{100*cum12:.1f}%**." if vr.size >= 2 else "")
@@ -312,6 +496,7 @@ def efa_explanatory(
     row_labels: dict[str, str] | None = None,
 ) -> str:
     lines = [
+        "### Lectura cualitativa muestral (AFE sobre muestra efectiva mismos casos PCA si compartieron bloques).\n\n",
         f"AFE exploratorio solicitó **{int(n_factors_requested)}** factores; **n** = **{int(n_respondentes)}**. {method_note}",
         "\nPor factor destacan cargas grandes (entre **≈0,25 y ≈0,40** suele tratarse solo como guía rápida; acá ordenamos las más altas observadas):\n",
     ]
@@ -701,12 +886,27 @@ def clustering_explanatory(
             vc_txt = f" Tamaños de cluster **{sizes}**. "
             vc_txt += f"Índice bruto mayor/menor = **{imbalance:.1f}x** (**&lt;~3** suele leerse equilibrado en exploración rápida)."
         inert_txt = f" **Inercia** final **{inertia:,.0f}** (sólo comparable si variás k sobre la misma matriz)." if inertia else ""
+        qual_km = ""
+        if vc is not None and not vc.empty and "n" in vc.columns:
+            nt = max(int(pd.to_numeric(vc["n"], errors="coerce").fillna(0).sum()), 1)
+            qbits = [
+                "\n### Lectura cualitativa muestral (asignación a cada clúster en esta corrida).\n\n"
+                "Conteos muestrales de cuántos encuestados quedaron en cada etiqueta automática después de ejecutar "
+                "**K-means**. Los porcentajes son **solo respecto del total válido tras la segmentación vista**:\n\n"
+            ]
+            for _, rr in vc.iterrows():
+                cid = rr["cluster"] if "cluster" in rr.index else rr.iloc[0]
+                nn = int(rr["n"])
+                qbits.append(
+                    f"- Clúster **{cid}**: **n = {nn}** personas (**{100.0 * nn / nt:.1f}%** del total asignado en esta corrida).\n"
+                )
+            qual_km = "".join(qbits)
         return (
             f"Segmentación **K-means** con **k = {int(k)}** sobre **{int(n_feats)} {rasgo_txt}** y **{int(n_obs)}** filas usadas.{inert_txt}\n\n"
             f"{vc_txt}\n\nInterpretá centroides más altos/más bajos como **promedios en el espacio original** (K-means trabaja en datos tipificados;"
             f" la tabla que ves es la transformación inversa; con dummies,"
             " el centroide cercano a 1 suele interpretarse como **alta proporción declarada en esa opción**); "
-            f"nombre de segmentos («con acceso…», etc.) es **decisión analítica tuya**, no viene del método."
+            f"nombre de segmentos («con acceso…», etc.) es **decisión analítica tuya**, no viene del método.{qual_km}"
         )
     if mode == "DBSCAN":
         nr = noise_rate if noise_rate is not None else 0.0
@@ -719,6 +919,20 @@ def clustering_explanatory(
         "**Jerárquico:** sólo dendrograma de una **muestra aleatoria** (legibilidad). "
         "**No** extrapoles cortes óptimos al universo completo sin recalcular; usalo para intuir fusión/aglomeraciones."
     )
+
+
+def predictive_qualitative_accuracy_reading(acc: pd.DataFrame) -> str:
+    if acc is None or acc.empty:
+        return ""
+    a = acc.sort_values("accuracy_val", ascending=False).reset_index(drop=True)
+    bits = ["\n### Lectura cualitativa muestral (orden según **accuracy** del mismo *hold-out* reproducible).\n"]
+    for _, r in a.iterrows():
+        bits.append(
+            f"\n- **{_trunc(str(r['modelo']), 60)}**: en la partición interna **test**, el clasificador acertó declarativamente **≈ "
+            f"{float(r['accuracy_val']) * 100:.1f}%** de los casos (proporción de predicciones correctas sobre ese subconjunto en esta corrida).\n"
+        )
+    bits.append("\n_Orden sólo muestral dentro del archivo ejecutado aquí — no causa ni cobertura poblacional externa._\n")
+    return "".join(bits)
 
 
 def predictive_explanatory(
@@ -756,7 +970,7 @@ def predictive_explanatory(
             f"como guía (igual podés dejar elegido **{modelo_shap}** en el desplegable).\n\n"
         )
     base += "**No** sustituye diseño muestral externo ni validación institucional específica."
-    return base
+    return base + predictive_qualitative_accuracy_reading(accuracy_tbl)
 
 
 def predictive_academic_explanatory(
@@ -842,6 +1056,7 @@ def predictive_academic_explanatory(
 
 def cfa_explanatory_short() -> str:
     return (
+        "### Lectura cualitativa muestral (CFA de un factor, si **`semopy`** corrió en el entorno)\n\n"
         "CFA de **un solo factor**: los coeficientes y métricas (si están) describen cómo ese factor explica correlaciones observadas tras **semopy**.\n\n"
         "Contrastá métricas de ajuste (χ² robusto, CFI/TLI, RMSEA, etc.) con umbrales de tu disciplina;"
         "\nUn factor único suele verse **parsimonioso** pero puede **no bastar** si hay subdimensiones teóricas claras."

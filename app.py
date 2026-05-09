@@ -89,9 +89,10 @@ st.set_page_config(
 
 def _bloque_interpretacion_cuantitativa(texto_md: str) -> None:
     st.markdown("---")
-    st.markdown("##### Interpretación orientativa")
+    st.markdown("##### Interpretación orientativa (incluye lectura cualitativa muestral automática donde aplica)")
     st.caption(
         "El texto siguiente se arma **solo** con los valores mostrados arriba (sin IA generativa). "
+        "Incorpora **bloques cualitativos** (descripciones número‑a‑número) en cruces χ², descriptivos, grupos, Cronbach, PCA/AFE cuando corresponda, clustering K‑means, predictivos.\n\n"
         "Complementalo con el marco teórico del estudio y, si corresponde, asesoría estadística institucional."
     )
     st.markdown(texto_md)
@@ -583,6 +584,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 n=out["n"],
                                 row_lab=_fmt_analysis_col(rcol),
                                 col_lab=_fmt_analysis_col(ccol),
+                                tabla=out["tabla"],
                             )
                         )
         
@@ -631,7 +633,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         )
                         st.markdown(anova_txt + "  \n" + kw_txt)
                         _bloque_interpretacion_cuantitativa(
-                            group_comparison_explanatory(res, _fmt_analysis_col(ycol), _fmt_analysis_col(gcol))
+                            group_comparison_explanatory(
+                                res,
+                                _fmt_analysis_col(ycol),
+                                _fmt_analysis_col(gcol),
+                                sample=sub,
+                            )
                         )
         
             # --- Cronbach ---
@@ -673,7 +680,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
                             st.dataframe(mat.describe().T, use_container_width=True)
                             _bloque_interpretacion_cuantitativa(
-                                cronbach_explanatory(alpha, len(mat), mat.shape[1], warns_cron)
+                                cronbach_explanatory(alpha, len(mat), mat.shape[1], warns_cron, mat=mat)
                             )
                     else:
                         st.info("Seleccioná al menos dos ítems de la misma escala.")
