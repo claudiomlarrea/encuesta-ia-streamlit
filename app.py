@@ -53,6 +53,9 @@ from survey_intel import (
     kwic_snippets,
     lexicon_sentiment_es,
     ngram_top_table,
+    qualitative_synthesis_discourse,
+    qualitative_synthesis_sentiment,
+    qualitative_synthesis_thematic,
     thematic_nmf,
 )
 
@@ -786,6 +789,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     options=[p.name for p in open_items],
                     format_func=lambda x: next(p.short_name for p in open_items if p.name == x),
                 )
+                q_label = next(p.short_name for p in open_items if p.name == oc)
                 texts = df[oc].dropna().astype(str).tolist()
 
                 filtered = [t.strip() for t in texts if len(t.strip()) > 4]
@@ -826,10 +830,30 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="temas_nmf_por_respuesta.csv",
                             mime="text/csv",
                         )
+                        st.markdown("##### Síntesis de conclusiones (~100 palabras)")
+                        st.write(
+                            qualitative_synthesis_thematic(
+                                q_label,
+                                topics,
+                                dominant,
+                                len(texts_nmf),
+                                topic_k,
+                            )
+                        )
                     else:
                         st.info(
                             "No se extrajeron temas estables: pocas respuestas largas, texto muy repetido o "
                             "vocabulario demasiado disperso. Probá más respuestas o bajá la cantidad de temas en la barra lateral."
+                        )
+                        st.markdown("##### Síntesis de conclusiones (~100 palabras)")
+                        st.write(
+                            qualitative_synthesis_thematic(
+                                q_label,
+                                [],
+                                [],
+                                0,
+                                topic_k,
+                            )
                         )
 
                 with qa2:
@@ -886,6 +910,20 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         file_name="sentimiento_abiertas.csv",
                         mime="text/csv",
                     )
+                    used_hf = hf_ok and toggle_hf and _HAS_TRANSFORMERS
+                    metodo_sent = (
+                        "modelo neuronal RoBERTuito (Hugging Face)"
+                        if used_hf
+                        else "léxico en español basado en listas orientativas"
+                    )
+                    st.markdown("##### Síntesis de conclusiones (~100 palabras)")
+                    st.write(
+                        qualitative_synthesis_sentiment(
+                            q_label,
+                            dist,
+                            metodo=metodo_sent,
+                        )
+                    )
 
                 with qa3:
                     st.markdown("##### Apoyos para lectura del discurso")
@@ -913,14 +951,26 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         "Buscar palabra o frase (concordancias en contexto)",
                         placeholder="ej. plagio, copiar, ética, miedo",
                     )
+                    kwic_hits: list[str] = []
                     if needle.strip():
-                        hits = kwic_snippets(filtered, needle.strip(), max_hits=35)
-                        if not hits:
+                        kwic_hits = kwic_snippets(filtered, needle.strip(), max_hits=35)
+                        if not kwic_hits:
                             st.caption("Sin coincidencias (probá otra forma o menos caracteres).")
                         else:
-                            st.markdown(f"**Coincidencias ({len(hits)})**")
-                            for h in hits:
+                            st.markdown(f"**Coincidencias ({len(kwic_hits)})**")
+                            for h in kwic_hits:
                                 st.markdown(f"- {h}")
+
+                    st.markdown("##### Síntesis de conclusiones (~100 palabras)")
+                    st.write(
+                        qualitative_synthesis_discourse(
+                            q_label,
+                            bi,
+                            tri,
+                            needle or "",
+                            kwic_hits,
+                        )
+                    )
 
     if "Guía metodológica" in T_main:
         with T_main["Guía metodológica"]:
