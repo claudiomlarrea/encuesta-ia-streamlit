@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import re
 import textwrap
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
+
+from survey_intel import is_timestamp_column
 
 
 def column_key_short(name: str, max_len: int = 64) -> str:
@@ -214,6 +217,103 @@ def ordinal_scaling_report(mat: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
             "Las anchuras ordinal observadas (**máx − mín**) no coinciden entre columnas — revisá cómo combinás ítems en el Alfa y los factores."
         )
     return table, msgs
+
+
+def ellipsis_text(label: str, max_chars: int = 92) -> str:
+    s = label.strip().replace("\n", " ")
+    s = re.sub(r"\s+", " ", s)
+    return s[: max_chars - 1] + "…" if len(s) > max_chars else s
+
+
+def questionnaire_parent_stem(column_name: str) -> str:
+    """
+    Texto padre típico de Google Forms antes del sub‑ítem entre corchetes: “Enunciado... [Ítem específico]”.
+    Sin corchetos, cada columna se trata como bloque único (ítem = columna).
+    """
+    raw = str(column_name).strip().replace("\r\n", "\n").replace("\r", "\n")
+    stem = raw.split("[", 1)[0] if "[" in raw else raw
+    return re.sub(r"\s+", " ", stem).strip()
+
+
+def survey_question_groups(column_names: list[str]) -> OrderedDict[str, list[str]]:
+    groups: OrderedDict[str, list[str]] = OrderedDict()
+    for c in column_names:
+        stem = questionnaire_parent_stem(c)
+        groups.setdefault(stem, []).append(c)
+    return groups
+
+
+def bracket_sub_item_label(full_column_name: str) -> str:
+    raw = str(full_column_name).strip().replace("\r\n", "\n").replace("\r", "\n")
+    if "[" not in raw:
+        return ""
+    tail = raw.split("[", 1)[1]
+    inner = tail.split("]", 1)[0].strip().replace("\n", " ")
+    return re.sub(r"\s+", " ", inner)
+
+
+def detect_survey_ordinals_and_question_blocks(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Detecta agrupamiento por “pregunta” (mismo texto padre antes de `[`) y marca columnas ordinalizables via `detect_best_ordinal`.
+
+    Devuelve (detalle por columna, resumen por bloque).
+    """
+    cols = [c for c in df.columns if not is_timestamp_column(str(c))]
+    groups = survey_question_groups([str(x) for x in cols])
+
+    detail_rows: list[dict[str, Any]] = []
+    block_rows: list[dict[str, Any]] = []
+    blk_id = 0
+    for stem, colnames in groups.items():
+        blk_id += 1
+        ordinal_schemes: list[str] = []
+        ordinal_count = 0
+        for j, colname in enumerate(colnames):
+            coded, scheme = detect_best_ordinal(df[colname], min_cover=0.40)
+            cov = float(coded.notna().mean())
+            is_ord = (not str(scheme).startswith("no ordinal")) and cov >= 0.42
+            n_levels = int(coded.dropna().astype(float).nunique()) if is_ord else None
+            if is_ord:
+                ordinal_count += 1
+                ordinal_schemes.append(str(scheme))
+            sub_lab = bracket_sub_item_label(colname)
+            detail_rows.append(
+                {
+                    "#_bloque": blk_id,
+                    "ítem_en_el_bloque": j + 1,
+                    "ítems_totales_en_pregunta": len(colnames),
+                    "¿ordinal?_auto": "Sí" if is_ord else "No",
+                    "cobertura_%": round(cov * 100, 1),
+                    "esquema_detectado": scheme,
+                    "K_niveles_obs": n_levels if n_levels is not None else "",
+                    "subítem": ellipsis_text(sub_lab, 140) if sub_lab else "(única columna / sin [])",
+                    "columna_abbr": column_key_short(str(colname), 76),
+                    "enunciado_pregunta_abbr": ellipsis_text(stem, 110),
+                    "_columna_interna": str(colname),
+                }
+            )
+        if ordinal_count == 0:
+            clasif = "Ningún ítem ordinal"
+        elif ordinal_count == len(colnames):
+            clasif = "Todos ordinales"
+        else:
+            clasif = "Mixto"
+
+        uniq_s = sorted(set(ordinal_schemes))
+        schemes_join = "; ".join(uniq_s[:6]) + (" …" if len(uniq_s) > 6 else "")
+        block_rows.append(
+            {
+                "#": blk_id,
+                "enunciado_abbr": ellipsis_text(stem, 132),
+                "n_columnas_ítems": len(colnames),
+                "ítems_ordinales_detectados": ordinal_count,
+                "clasificación": clasif,
+                "esquemas_ordinales": schemes_join if schemes_join else "—",
+            }
+        )
+    detail = pd.DataFrame(detail_rows)
+    blocks = pd.DataFrame(block_rows)
+    return detail, blocks
 
 
 def descriptive_one_column(series: pd.Series, inverted: bool = False) -> dict[str, Any]:

@@ -18,6 +18,7 @@ from quant_advanced import (
     crosstab_chi_square,
     cronbach_alpha,
     dbscan_profiles,
+    detect_survey_ordinals_and_question_blocks,
     descriptive_one_column,
     detect_best_ordinal,
     filter_dataframe_comparison,
@@ -169,6 +170,51 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         c1.metric("Ítems estructurados", len(structured))
         c2.metric("Ítems abiertos", len(open_items))
         c3.metric("Total analizados", len(profiles))
+
+        st.subheader("Detección: escalas ordinales y cantidad de ítems por pregunta")
+        st.caption(
+            "Agrupamos por el **texto antes del primer corchete** `[` que suelen tener las matrices de Google Forms "
+            "(un mismo enunciado, varios sub‑ítems). Luego clasificamos columna por columna con esquema Likert/frecuencia (4 ó 5 niveles)."
+        )
+        det_ord, blk_ord = detect_survey_ordinals_and_question_blocks(df)
+        if not blk_ord.empty:
+            b1, b2, b3, b4 = st.columns(4)
+            n_bloques = int(blk_ord.shape[0])
+            n_ord = int((det_ord["¿ordinal?_auto"] == "Sí").sum()) if not det_ord.empty else 0
+            n_col = int(det_ord.shape[0]) if not det_ord.empty else 0
+            b1.metric("Bloques pregunta (grupos)", n_bloques)
+            b2.metric("Columnas analizadas", n_col)
+            b3.metric("Columnas ordinal (auto)", n_ord)
+            b4.metric(
+                "Bloques 100% ordinal",
+                int((blk_ord["clasificación"] == "Todos ordinales").sum()),
+            )
+            st.markdown("##### Por pregunta (bloque)")
+            st.dataframe(
+                blk_ord,
+                use_container_width=True,
+                hide_index=True,
+            )
+            show_det = det_ord.drop(columns=["_columna_interna"], errors="ignore")
+            with st.expander("Detalle automático ítem × ítem"):
+                st.dataframe(show_det, use_container_width=True, hide_index=True)
+            csv_b = blk_ord.to_csv(index=False).encode("utf-8")
+            csv_d = det_ord.to_csv(index=False).encode("utf-8")
+            d1, d2 = st.columns(2)
+            d1.download_button(
+                "Descargar resumen bloques (CSV)",
+                csv_b,
+                file_name="bloques_pregunta_ordinales.csv",
+                mime="text/csv",
+            )
+            d2.download_button(
+                "Descargar detalle columnas (CSV)",
+                csv_d,
+                file_name="detalle_ordinales_por_columna.csv",
+                mime="text/csv",
+            )
+        else:
+            st.info("No hay columnas para analizar (revisá el archivo y la marca temporal).")
 
     with tab1:
         st.subheader("Análisis cuantitativo")
