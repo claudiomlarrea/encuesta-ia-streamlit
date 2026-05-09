@@ -1,0 +1,312 @@
+"""
+Heurísticas y análisis para encuestas exportadas (p. ej. Google Forms → Excel).
+"""
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Any, Literal
+
+import numpy as np
+import pandas as pd
+from sklearn.decomposition import NMF
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+
+# --- Clasificación estructurada vs abierta ---
+
+TIMESTAMP_HINTS = ("marca temporal", "timestamp", "fecha de respuesta")
+
+LIKERT_TERMS = frozenset(
+    {
+        "totalmente de acuerdo",
+        "de acuerdo",
+        "ni de acuerdo ni en desacuerdo",
+        "en desacuerdo",
+        "totalmente en desacuerdo",
+        "completamente de acuerdo",
+    }
+)
+
+FREQ_TERMS = frozenset(
+    {
+        "nunca",
+        "rara vez",
+        "a veces",
+        "frecuentemente",
+        "siempre",
+    }
+)
+
+BINARY_SI_NO = frozenset(
+    {
+        "si",
+        "sí",
+        "no",
+        "sí.",  # ruido menor
+        "no.",
+    }
+)
+
+
+def _normalize_cell(x: Any) -> str:
+    if pd.isna(x):
+        return ""
+    s = str(x).strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _short_label(col: str) -> str:
+    s = col.replace("\n", " ").strip()
+    if len(s) > 90:
+        return s[:87] + "…"
+    return s
+
+
+SPANISH_STOP = frozenset(
+    """
+    el la los las un una unos unas y o u de del al a en con por para sin sobre entre
+    hacia hasta desde que como cuando donde quien cual cuales esto esa esos esas ese
+    esta este son somos soy eres es han he ha muy mas menos todo toda todos todas
+    algo alguien nada nadie mismo misma mismos mismas tambien tampoco solo sola tan
+    ya sea sei ser sido siendo fue fueron será serán podría puede pueden podemos
+    hay había haber tener tengo tiene tienen hacer hace hacen dicho dije otros otra
+    otro entre más menos bien mal no sí si yo tu él ella nos vos ellos ellas mi tu su
+    nuestro vuestra cualquier cada qué cómo cuál quién
+    """.split()
+)
+
+
+def lexicon_sentiment_es(text: str) -> tuple[str, float]:
+    """Sentimiento muy simple sin modelos (respaldo). Retorna etiqueta y score -1..1."""
+    POS = frozenset(
+        """
+        bueno buena buenos buenas mejor mejores útil utiles facil fácil rapido rápido
+        ayuda ayudar aprendo aprender entiendo entender claro claros positivo positiva
+        ventaja ventajas motiva motivar interesante feliz satisfecho satisfecha
+        recomiendo recomendable eficiente productivo genial excelente buenísimo
+        confianza confiable innovación oportunidad oportunidades beneficio beneficios
+        """.split()
+    )
+    NEG = frozenset(
+        """
+        malo mala malos malas peor peores difícil dificil complicado complicada
+        problema problemas riesgo riesgos miedo preocupa preocupación preocupaciones
+        negativo negativa error errores fraude trampa engaña engaño copiar copiado
+        dependencia adicción prohibido sanción sanciones desventaja desventajas
+        académica deshonestidad plagiarism plagio rechazo desapruebo desaprueban
+        reemplazo miedo horrible terrible malísimo
+        """.split()
+    )
+
+    tokens = re.findall(r"[\wáéíóúñü]+", text.lower())
+    p = sum(1 for t in tokens if t in POS)
+    n = sum(1 for t in tokens if t in NEG)
+    score = (p - n) / max(1, p + n)
+    if score > 0.15:
+        return "positivo", score
+    if score < -0.15:
+        return "negativo", score
+    return "neutral", score
+
+
+class SentimentModel:
+    _pipe = None
+
+    @classmethod
+    def pipe(cls):
+        if cls._pipe is None:
+            from transformers import pipeline
+
+            cls._pipe = pipeline(
+                "sentiment-analysis",
+                model="pysentimiento/robertuito-sentiment-analysis",
+                truncation=True,
+                max_length=256,
+            )
+        return cls._pipe
+
+    @classmethod
+    def predict_batch(cls, texts: list[str], batch_size: int = 16) -> list[dict[str, Any]]:
+        """Etiquetas del modelo: NEG, NEU, POS (robertuito)."""
+        pipe = cls.pipe()
+        out: list[dict[str, Any]] = []
+        for i in range(0, len(texts), batch_size):
+            chunk = texts[i : i + batch_size]
+            out.extend(pipe(chunk))
+        return out
+
+    @classmethod
+    def map_label(cls, raw: str) -> str:
+        u = raw.upper()
+        if "POS" in u:
+            return "positivo"
+        if "NEG" in u:
+            return "negativo"
+        return "neutral"
+
+
+@dataclass
+class ColumnProfile:
+    name: str
+    short_name: str
+    kind: Literal["estructurada", "abierta"]
+    subtype: str
+    n_non_null: int
+    n_unique: int
+    avg_len: float
+    max_len: int
+
+
+def is_timestamp_column(name: str) -> bool:
+    n = name.lower().strip()
+    return any(h in n for h in TIMESTAMP_HINTS)
+
+
+def classify_columns(df: pd.DataFrame) -> list[ColumnProfile]:
+    profiles: list[ColumnProfile] = []
+    for col in df.columns:
+        if is_timestamp_column(col):
+            continue
+        s = df[col]
+        non_null = s.dropna()
+        nn = len(non_null)
+        if nn == 0:
+            profiles.append(
+                ColumnProfile(
+                    name=col,
+                    short_name=_short_label(col),
+                    kind="abierta",
+                    subtype="sin respuestas",
+                    n_non_null=0,
+                    n_unique=0,
+                    avg_len=0.0,
+                    max_len=0,
+                )
+            )
+            continue
+
+        str_s = non_null.astype(str).str.strip()
+        lens = str_s.str.len()
+        avg_len = float(lens.mean())
+        max_len = int(lens.max())
+        n_unique = int(str_s.nunique())
+        norm = str_s.map(_normalize_cell)
+
+        ratio_likert = norm.isin(LIKERT_TERMS).mean()
+        ratio_freq = norm.isin(FREQ_TERMS).mean()
+        ratio_bin = norm.isin(BINARY_SI_NO).mean()
+
+        comma_ratio = str_s.str.contains(",").mean()
+        card_ratio = n_unique / max(nn, 1)
+
+        # Subtipo y decisión
+        subtype = "mixta / revisar"
+        kind: Literal["estructurada", "abierta"] = "estructurada"
+
+        if ratio_likert >= 0.45:
+            subtype = "Escala tipo Likert (acuerdo)"
+            kind = "estructurada"
+        elif ratio_freq >= 0.45:
+            subtype = "Escala de frecuencia"
+            kind = "estructurada"
+        elif ratio_bin >= 0.85 and n_unique <= 4:
+            subtype = "Binaria (Sí/No u opciones cerradas)"
+            kind = "estructurada"
+        elif n_unique <= 80 and card_ratio < 0.25:
+            # Listas cerradas con etiquetas largas (ej. facultades) u opciones repetidas.
+            if comma_ratio >= 0.35:
+                subtype = "Selección múltiple (valores separados por comas)"
+            else:
+                subtype = "Categórica (lista cerrada)"
+            kind = "estructurada"
+        elif n_unique <= 28 and avg_len <= 62:
+            subtype = "Categórica (opción única o poca cardinalidad)"
+            kind = "estructurada"
+        elif comma_ratio >= 0.35 and avg_len <= 140:
+            subtype = "Selección múltiple (valores separados por comas)"
+            kind = "estructurada"
+        elif max_len >= 220 or (avg_len >= 55 and card_ratio > 0.35):
+            subtype = "Texto libre (respuesta abierta)"
+            kind = "abierta"
+        elif n_unique > 70 and avg_len >= 42:
+            subtype = "Alta cardinalidad (texto libre o respuestas muy heterogéneas)"
+            kind = "abierta"
+        else:
+            subtype = "Categórica / escala (revisar visualmente)"
+            kind = "estructurada"
+
+        profiles.append(
+            ColumnProfile(
+                name=col,
+                short_name=_short_label(col),
+                kind=kind,
+                subtype=subtype,
+                n_non_null=nn,
+                n_unique=n_unique,
+                avg_len=avg_len,
+                max_len=max_len,
+            )
+        )
+    return profiles
+
+
+def explode_multiselect(series: pd.Series, sep: str = ",") -> pd.Series:
+    """Divide respuestas tipo 'ChatGPT, Gemini' en filas."""
+    rows: list[str] = []
+    for v in series.dropna().astype(str):
+        parts = [p.strip() for p in v.split(sep) if p.strip()]
+        rows.extend(parts)
+    return pd.Series(rows)
+
+
+def frequency_table(series: pd.Series, top_n: int = 25) -> pd.DataFrame:
+    vc = series.dropna().astype(str).value_counts()
+    total = vc.sum()
+    out = vc.head(top_n).rename_axis("categoría").reset_index(name="frecuencia")
+    out["porcentaje"] = (out["frecuencia"] / total * 100).round(2)
+    return out
+
+
+def thematic_nmf(texts: list[str], n_topics: int = 5, max_features: int = 2000) -> tuple[list[dict[str, Any]], np.ndarray]:
+    """
+    Temas vía NMF + TF‑IDF (exploratorio, no sustituye codificación manual).
+    """
+    clean = [t.strip() for t in texts if t and len(t.strip()) > 3]
+    if len(clean) < max(10, n_topics * 5):
+        return [], np.array([])
+
+    n_topics = min(n_topics, len(clean) // 3, 12)
+    if n_topics < 2:
+        return [], np.array([])
+
+    def _preprocess(t: str) -> str:
+        toks = re.findall(r"[\wáéíóúñü]{3,}", t.lower())
+        return " ".join(w for w in toks if w not in SPANISH_STOP)
+
+    processed = [_preprocess(t) for t in clean]
+    if not any(processed):
+        return [], np.array([])
+
+    vectorizer = TfidfVectorizer(max_df=0.85, min_df=2, max_features=max_features)
+    X = vectorizer.fit_transform(processed)
+    if X.shape[1] < 5:
+        return [], np.array([])
+
+    nmf = NMF(n_components=n_topics, init="random", random_state=42, max_iter=800)
+    W = nmf.fit_transform(X)
+    H = nmf.components_
+    feat = np.array(vectorizer.get_feature_names_out())
+
+    topics: list[dict[str, Any]] = []
+    for i in range(n_topics):
+        top_idx = H[i].argsort()[::-1][:12]
+        topics.append(
+            {
+                "tema": i + 1,
+                "palabras_clave": ", ".join(feat[top_idx]),
+                "peso_tema_documento_medio": float(W[:, i].mean()),
+            }
+        )
+    return topics, W
