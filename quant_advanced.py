@@ -203,6 +203,65 @@ def detect_best_ordinal(series: pd.Series, min_cover: float = 0.55) -> tuple[pd.
     return pd.Series([np.nan] * len(series), index=series.index), "no ordinal"
 
 
+def series_spanish_age_bracket_ordinal(series: pd.Series) -> tuple[pd.Series, str]:
+    """
+    Convierte tramos típicos españoles de edad («menos de 20 años», …) en orden 1..4 ascendente por edad.
+    No depende del Likert: sirve cuando **Edad:** viene texto de rangos (Google Forms comunes Argentina).
+    """
+    lc = series.fillna("").astype(str).str.strip().str.lower()
+    lc = lc.replace({"nan": "", "<na>": "", "none": ""})
+    codes = pd.Series(np.nan, index=series.index, dtype=float)
+
+    def _stamp(mask: pd.Series, value: float) -> None:
+        sel = mask & codes.isna()
+        codes.loc[sel] = value
+
+    # Orden importante: rangos intermedios antes de «menores/más» cuando hay substrings ambiguos
+    _stamp(lc.str.contains(r"entre\s+20\s*y\s+25", regex=True, na=False), 2.0)
+    _stamp(lc.str.contains(r"entre\s+26\s*y\s+30", regex=True, na=False), 3.0)
+    _stamp(lc.str.contains(r"menores?\s+de\s+20|menos\s+de\s+20", regex=True, na=False), 1.0)
+    _stamp(
+        lc.str.contains(
+            r"\bm[aá]s\s+de\s+31\b|\bms\s+de\s+31\b|\bmayores?\s+de\s+31\b|\bmayor\s+a\s+31\b|>\s*31\b",
+            regex=True,
+            na=False,
+        ),
+        4.0,
+    )
+    lbl = "Tramos etarios (heurística automática español tipo encuesta estudiantil)"
+    return codes, lbl
+
+
+def resolve_ordinal_for_group_tests(
+    series: pd.Series,
+    min_cover: float = 0.40,
+) -> tuple[pd.Series, str]:
+    """
+    Preferí Likert/Frecuentes habituales; si la cobertura es baja o es «no ordinal»,
+    probá rangos típicos de **Edad:** en español antes de rechazar todo el caso.
+    """
+    y_primary, scheme = detect_best_ordinal(series, min_cover=min_cover)
+    yn = pd.to_numeric(y_primary, errors="coerce")
+    cov_p = float(yn.notna().mean())
+
+    y_age, age_lbl = series_spanish_age_bracket_ordinal(series)
+    cov_a = float(y_age.notna().mean())
+
+    robust_likert = cov_p >= 0.92 and scheme != "no ordinal" and not scheme.endswith("(parcial)")
+    if robust_likert:
+        return yn, scheme
+
+    if cov_a >= 0.45 and (
+        cov_a > cov_p + 1e-3
+        or scheme == "no ordinal"
+        or cov_p < float(min_cover)
+        or cov_p <= 1e-9
+    ):
+        return y_age.astype(float), age_lbl
+
+    return yn, scheme
+
+
 def modal_answer_text_by_ordinal_code(
     series: pd.Series,
     *,

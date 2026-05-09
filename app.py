@@ -27,6 +27,7 @@ from quant_advanced import (
     detect_survey_ordinals_and_question_blocks,
     descriptive_one_column,
     detect_best_ordinal,
+    resolve_ordinal_for_group_tests,
     filter_dataframe_comparison,
     fit_predictive_suite,
     hierarchical_linkage_plot,
@@ -605,12 +606,24 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         key="sig_g",
                         format_func=_fmt_analysis_col,
                     )
-                    ynum, _sch = detect_best_ordinal(df_work[ycol], min_cover=0.40)
+                    ynum, _sch = resolve_ordinal_for_group_tests(df_work[ycol], min_cover=0.40)
                     if ycol in invert_set:
                         ynum = invert_ordinal_series(ynum)
                     sub = pd.DataFrame({"y": ynum, "g": df_work[gcol]}).dropna()
+                    n_y_ok = int(pd.to_numeric(ynum, errors="coerce").notna().sum())
+                    _sch_dsp = str(_sch).replace("\n", " ").strip()
+                    if len(_sch_dsp) > 240:
+                        _sch_dsp = _sch_dsp[:237] + "…"
+                    st.caption(
+                        f"Código ordinal efectivo («{_sch_dsp}»): cobertura columnas respuesta antes de fusionar grupo **≈ "
+                        f"{100.0 * n_y_ok / max(len(df_work), 1):.1f}%**; filas válidas **y+g** después de quitar vacíos:"
+                        f" **{len(sub)}**."
+                    )
                     if len(sub) < 12:
-                        st.warning("Pocos casos con codificación ordinal válida y grupo informado.")
+                        st.warning(
+                            "Pocos casos con codificación ordinal válida y grupo informado después de fusionar datos."
+                            " Probá invertir grupo/respuesta (p. ej. **agrupador = Edad** y **ordinal = acceso a PC**, o usar **χ² categoría‑a‑categoría**)."
+                        )
                     else:
                         res = compare_numeric_across_groups(sub["y"], sub["g"])
                         st.write("Tamaños de grupo:", res.group_sizes)
