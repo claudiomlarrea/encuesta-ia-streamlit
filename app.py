@@ -47,6 +47,7 @@ from quant_summaries import (
     academic_exploratory_factor_reading,
     chi_square_explanatory,
     clustering_explanatory,
+    kmeans_cluster_reading_hints,
     cronbach_explanatory,
     descriptive_explanatory,
     efa_explanatory,
@@ -883,6 +884,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.dataframe(centers.round(2), use_container_width=True)
                                 vc = lbl.value_counts().sort_index().rename_axis("cluster").reset_index(name="n")
                                 st.dataframe(vc, hide_index=True)
+                                with st.expander(
+                                    "**Clúster 0 vs 1 vs 2:** qué significan y cómo nombrarlos",
+                                    expanded=True,
+                                ):
+                                    st.markdown(kmeans_cluster_reading_hints(centers, vc))
                                 _bloque_interpretacion_cuantitativa(
                                     clustering_explanatory(
                                         "K-means",

@@ -492,6 +492,72 @@ def academic_exploratory_factor_reading(
     )
 
 
+def kmeans_cluster_reading_hints(centers: pd.DataFrame, vc: pd.DataFrame | None = None) -> str:
+    """
+    Guía compacta para el usuario: K-means no asigna nombres «semánticos»; se infieren desde centroides/dummies.
+    """
+    blocks: list[str] = []
+
+    idx_centers = sorted(int(i) for i in centers.index.tolist())
+    have_vc = set()
+    if vc is not None and not vc.empty and "cluster" in vc.columns:
+        have_vc = {int(x) for x in vc["cluster"].tolist()}
+    clusters_order = sorted(set(idx_centers) | have_vc)
+    uniq_rows = centers.drop_duplicates()
+    dup_note = ""
+    if len(uniq_rows) < len(centers):
+        dup_note = (
+            "\n\n⚠️ Hay **centroides repetidos**: pediste más grupos (**k**) de los que estos datos pueden separar bien "
+            "(p. ej. **una variable binaria** ⇒ dos perfiles naturales como mucho si no hay errores)."
+            " Dos filas iguales en la tabla ⇒ **dos etiquetas cluster distintos representan lo mismo estadístico**;"
+            " en la práctica podés usar **k = número de combinaciones diferentes** observadas.\n\n"
+        )
+
+    blocks.append(
+        (
+            "### Cómo leer los números de clúster (0, 1, 2…)\n\n"
+            "- **`cluster` 0 / 1 / 2 son etiquetas internas aleatorias** del algoritmo: **no** significan orden de calidad ni importancia hasta que vos les des nombre.\n"
+            "- Para **traducirlos**, mirá cada **fila** de la tabla de **centroides** junto al **conteo n** por clúster: "
+            "**qué valores medios predominan** ahí equivalen en la práctica a «quiénes están en ese grupo» antes de etiquetarlo.\n"
+            "- Si la variable entró como **dummy** (codificación tipo *one-hot*: columnas `_Sí`, `_No`, etc.), valores **≥ ~0.5–0.55** "
+            "en esa columna suelen interpretarse como «**este segmento coincide más con esa opción declarada en promedio**».\n\n"
+        )
+        + dup_note
+        + "**Sugerencia automática (orientativa)** a partir de la tabla anterior:\n\n"
+    )
+
+    for cid in clusters_order:
+        if cid == -1:
+            continue
+        if cid not in centers.index:
+            continue
+        row = centers.loc[cid]
+        n_here = ""
+        if vc is not None and not vc.empty and "cluster" in vc.columns and "n" in vc.columns:
+            hit = vc.loc[vc["cluster"] == cid, "n"]
+            if len(hit):
+                n_here = f", **n = {int(hit.iloc[0])}** personas"
+            else:
+                n_here = ", **n = 0** (sin filas — centroide degenerado)"
+        dom: list[str] = []
+        for col in centers.columns:
+            nm = str(col)
+            val = float(row[col])
+            if nm.endswith("__ord"):
+                dom.append(f"media ordinal **~{val:.2f}** en `{_trunc(nm.replace('__ord',''), 64)}`")
+            elif val >= 0.52:
+                tail = nm.split("_")[-1][:40]
+                dom.append(f"predominio relativo **{tail}** (`{_trunc(nm, 60)}`) con centroide ≈ **{val:.2f}**")
+        hint = "; ".join(dom[:6]) if dom else "mezcla (**sin rasgo dominante claro ≥0.52**) — revisá k o agregá variables."
+        blocks.append(f"- **Clúster {cid}**{n_here}: {hint}")
+
+    blocks.append(
+        "\n\n*Los nombres finales («con acceso frecuente», «sin equipo», …) los definís vos* al cerrar tu informe,"
+        " alineándolos con **la pregunta del cuestionario** y con los centroides observados."
+    )
+    return "\n".join(blocks)
+
+
 def clustering_explanatory(
     mode: str,
     *,
@@ -503,6 +569,7 @@ def clustering_explanatory(
     n_obs: int = 0,
 ) -> str:
     if mode == "K-means":
+        rasgo_txt = "rasgo codificado" if int(n_feats) == 1 else "rasgos codificados"
         vc_txt = ""
         if vc is not None and not vc.empty and "n" in vc.columns:
             sizes = vc["n"].astype(int).tolist()
@@ -511,9 +578,11 @@ def clustering_explanatory(
             vc_txt += f"Índice bruto mayor/menor = **{imbalance:.1f}x** (**&lt;~3** suele leerse equilibrado en exploración rápida)."
         inert_txt = f" **Inercia** final **{inertia:,.0f}** (sólo comparable si variás k sobre la misma matriz)." if inertia else ""
         return (
-            f"Segmentación **K-means** con **k = {int(k)}** sobre **{n_feats} rasgos codificados** y **{int(n_obs)}** filas usadas.{inert_txt}\n\n"
-            f"{vc_txt}\n\nInterpretá centroides más altos/más bajos como **promedios de los escalares tras imputación con mediana**; "
-            f"nombre de los segmentos (estudiante «heavy user», etc.) es **analítico**."
+            f"Segmentación **K-means** con **k = {int(k)}** sobre **{int(n_feats)} {rasgo_txt}** y **{int(n_obs)}** filas usadas.{inert_txt}\n\n"
+            f"{vc_txt}\n\nInterpretá centroides más altos/más bajos como **promedios en el espacio original** (K-means trabaja en datos tipificados;"
+            f" la tabla que ves es la transformación inversa; con dummies,"
+            " el centroide cercano a 1 suele interpretarse como **alta proporción declarada en esa opción**); "
+            f"nombre de segmentos («con acceso…», etc.) es **decisión analítica tuya**, no viene del método."
         )
     if mode == "DBSCAN":
         nr = noise_rate if noise_rate is not None else 0.0
