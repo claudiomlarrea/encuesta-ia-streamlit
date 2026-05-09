@@ -723,6 +723,46 @@ def fit_predictive_suite(
     return results, Xt.values
 
 
+def plot_decision_tree_figure(
+    dt_model: Any,
+    feature_names: list[str],
+    class_names: list[str],
+    *,
+    max_depth: int = 4,
+    figsize: tuple[float, float] = (16, 9),
+):
+    """
+    Figura del árbol entrenado (solo sklearn/matplotlib; funciona en Cloud sin `shap`).
+    """
+    import matplotlib.pyplot as plt
+    from sklearn.tree import plot_tree
+
+    plt.ioff()
+    fn = [str(f)[:44] + "…" if len(str(f)) > 44 else str(f) for f in feature_names]
+    cn = [str(c)[:24] + "…" if len(str(c)) > 24 else str(c) for c in class_names]
+    fig, ax = plt.subplots(figsize=figsize)
+    plot_tree(
+        dt_model,
+        feature_names=fn,
+        class_names=cn,
+        max_depth=int(max_depth),
+        filled=True,
+        rounded=True,
+        fontsize=6,
+        ax=ax,
+        impurity=False,
+    )
+    plt.tight_layout()
+    return fig
+
+
+def decision_tree_rules_text(dt_model: Any, feature_names: list[str]) -> str:
+    from sklearn.tree import export_text
+
+    fn = [str(f)[:80] for f in feature_names]
+    return export_text(dt_model, feature_names=fn, max_depth=20, decimals=2, show_weights=True)
+
+
 def shap_summary_figure(model: Any, X_sample: pd.DataFrame, multiclass_class: int | None = None):
     import matplotlib.pyplot as plt
 

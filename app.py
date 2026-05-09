@@ -9,6 +9,7 @@ from typing import Any
 
 _HAS_SEMOPY = importlib.util.find_spec("semopy") is not None
 _HAS_TRANSFORMERS = importlib.util.find_spec("transformers") is not None
+_HAS_SHAP = importlib.util.find_spec("shap") is not None
 
 import pandas as pd
 import plotly.express as px
@@ -41,6 +42,8 @@ from quant_advanced import (
     run_efa,
     run_efa_from_correlation_matrix,
     run_pca_with_loadings,
+    decision_tree_rules_text,
+    plot_decision_tree_figure,
     shap_summary_figure,
 )
 from quant_summaries import (
@@ -942,6 +945,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if "7. Predictivos + SHAP" in Q:
                 with Q["7. Predictivos + SHAP"]:
                     st.markdown("#### Modelos predictivos + interpretabilidad (SHAP orientativo)")
+                    st.caption(
+                        "**Cloud:** suele instalarse sin `shap`; igual podés comparar accuracy y **graficar el árbol de decisión** (sklearn) abajo."
+                        + (" **SHAP** disponible en este entorno." if _HAS_SHAP else "")
+                    )
                     target = st.selectbox(
                         "Variable objetivo (categoría a predecir)",
                         all_analysis_cols,
@@ -992,13 +999,65 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 X_te = res[model_key]["X_test"]
                                 sample_rows = min(400, len(X_te))
                                 Xs = X_te.sample(sample_rows, random_state=17)
-                                try:
-                                    fig = shap_summary_figure(res[model_key]["model"], Xs, multiclass_class=mcidx)
-                                    st.pyplot(fig)
-                                    plt.close(fig)
-                                except Exception as exc:
-                                    st.warning(f"SHAP omitido: {exc}")
-                                interp_pred = predictive_explanatory(pred_acc_tbl, model_key if model_key else shap_pick)
+                                shap_mostro = False
+                                if _HAS_SHAP:
+                                    try:
+                                        fig = shap_summary_figure(res[model_key]["model"], Xs, multiclass_class=mcidx)
+                                        st.pyplot(fig)
+                                        plt.close(fig)
+                                        shap_mostro = True
+                                    except Exception as exc:
+                                        st.warning(f"SHAP omitido: {exc}")
+                                else:
+                                    st.info(
+                                        "**SHAP** no está instalado en este servidor (común en Community Cloud por tamaño del paquete). "
+                                        "Instalalo localmente: `pip install shap` o `pip install -r requirements-full.txt`."
+                                    )
+
+                                if "Árbol de decisión" in res:
+                                    with st.expander("**Árbol de decisión** — figura y reglas (`sklearn`, sin SHAP)", expanded=True):
+                                        dtp = res["Árbol de decisión"]
+                                        enc_dt = dtp["encoder"]
+                                        cl_nom = [str(x) for x in enc_dt.classes_]
+                                        ddepth = st.slider(
+                                            "Profundidad máxima en el dibujo",
+                                            min_value=2,
+                                            max_value=10,
+                                            value=5,
+                                            key="viz_dt_depth",
+                                            help="Acortá si tenés muchas categorías objetivo y el gráfico se satura.",
+                                        )
+                                        try:
+                                            fdt = plot_decision_tree_figure(
+                                                dtp["model"],
+                                                list(dtp["features"]),
+                                                cl_nom,
+                                                max_depth=ddepth,
+                                            )
+                                            st.pyplot(fdt)
+                                            plt.close(fdt)
+                                        except Exception as exc:
+                                            st.warning(f"No se pudo dibujar el árbol: {exc}")
+                                        try:
+                                            rules = decision_tree_rules_text(dtp["model"], list(dtp["features"]))
+                                            st.download_button(
+                                                "Descargar reglas del árbol (.txt)",
+                                                data=rules.encode("utf-8"),
+                                                file_name="arbol_decision_reglas.txt",
+                                                mime="text/plain",
+                                            )
+                                            with st.expander("Ver reglas en texto (primeras líneas)"):
+                                                st.code(rules[:8000] + ("…" if len(rules) > 8000 else ""), language="text")
+                                        except Exception as exc:
+                                            st.caption(f"Exportación texto del árbol no disponible: {exc}")
+
+                                n_cls = len(res[model_key]["encoder"].classes_)
+                                interp_pred = predictive_explanatory(
+                                    pred_acc_tbl,
+                                    model_key if model_key else shap_pick,
+                                    n_clases_objetivo=int(n_cls),
+                                    shap_disponible=_HAS_SHAP and shap_mostro,
+                                )
                                 if interp_pred:
                                     _bloque_interpretacion_cuantitativa(interp_pred)
                             except Exception as exc:

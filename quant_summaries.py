@@ -721,19 +721,42 @@ def clustering_explanatory(
     )
 
 
-def predictive_explanatory(accuracy_tbl: pd.DataFrame, modelo_shap: str) -> str:
+def predictive_explanatory(
+    accuracy_tbl: pd.DataFrame,
+    modelo_shap: str,
+    *,
+    n_clases_objetivo: int | None = None,
+    shap_disponible: bool = False,
+) -> str:
     if accuracy_tbl.empty:
         return ""
     best = accuracy_tbl.loc[accuracy_tbl["accuracy_val"].idxmax()]
     worst = accuracy_tbl.loc[accuracy_tbl["accuracy_val"].idxmin()]
-    return (
-        f"En validación codificada por la rutina interna (train/test reproducible),\n\n"
+    base = (
+        f"En validación interna **train/test** (misma semilla en cada corrida),\n\n"
         f"- **Mayor accuracy** vista: **{best['modelo']}** (**{best['accuracy_val']:.3f}**).\n"
         f"- **Menor**: **{worst['modelo']}** (**{worst['accuracy_val']:.3f}**).\n\n"
-        f"Gráfico **SHAP** con **{modelo_shap}** resume importancia direccional promedio "
-        "(con las limitaciones conocidas sobre dependencia y tamaño muestral).\n\n"
-        "**No** sustituye diseño muestral externo ni validación específica de tu protocolo institucional."
     )
+    if n_clases_objetivo and int(n_clases_objetivo) > 1:
+        azar = 1.0 / int(n_clases_objetivo)
+        base += (
+            f"Tu variable objetivo tiene **{int(n_clases_objetivo)}** categorías tras limpiar faltantes "
+            f"→ un clasificador aleatorio uniforme esperaría ~**{100 * azar:.1f}%** de acierto. "
+            "Si el accuracy queda cerca de eso, los predictores elegidos **no separan bien** esas clases (o faltan otros rasgos).\n\n"
+        )
+    if shap_disponible:
+        base += (
+            f"**SHAP** (si el gráfico corre arriba) resume importancias medias con el modelo elegido (**{modelo_shap}**). "
+            "Los **árboles** también se pueden leer con la figura + reglas que agrega la app (sin depender de SHAP).\n\n"
+        )
+    else:
+        base += (
+            "**SHAP** no está instalado en este despliegue (típico en Community Cloud): en local `pip install shap` o "
+            "`requirements-full.txt`. Mientras tanto, usá el **gráfico del árbol de decisión** y las **reglas en texto** "
+            f"como interpretación orientativa (aunque el desplegable de modelo diga **{modelo_shap}** para SHAP).\n\n"
+        )
+    base += "**No** sustituye diseño muestral externo ni validación institucional específica."
+    return base
 
 
 def cfa_explanatory_short() -> str:
