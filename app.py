@@ -10,6 +10,26 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+import matplotlib.pyplot as plt
+
+from quant_advanced import (
+    compare_numeric_across_groups,
+    crosstab_chi_square,
+    cronbach_alpha,
+    dbscan_profiles,
+    descriptive_one_column,
+    detect_best_ordinal,
+    filter_dataframe_comparison,
+    fit_predictive_suite,
+    hierarchical_linkage_plot,
+    kmeans_profiles,
+    likert_numeric_matrix,
+    optional_sem_estimate,
+    prepare_feature_matrix,
+    run_efa,
+    run_pca_with_loadings,
+    shap_summary_figure,
+)
 from survey_intel import (
     ColumnProfile,
     SentimentModel,
@@ -109,7 +129,7 @@ def main() -> None:
 - **Correlaciones** entre escalas o entre uso autodeclarado y actitudes.
 - **Comparaciones entre grupos** (año de carrera, género, etc.): pruebas no paramétricas o modelos lineales según supuestos.
 
-Esta app implementa **frecuencias, porcentajes y gráficos** para ítems estructurados; el resto podés exportar a CSV y continuar en SPSS, R o Python.
+Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciales, Alfa de Cronbach, PCA/AFE, clustering, modelos predictivos con SHAP** y un bloque básico de CFA vía `semopy`.
                     """
                 )
             return
@@ -128,6 +148,8 @@ Esta app implementa **frecuencias, porcentajes y gráficos** para ítems estruct
         ["Resumen de ítems", "Análisis cuantitativo", "Análisis cualitativo", "Guía metodológica"]
     )
 
+    all_analysis_cols = [c for c in df.columns if not is_timestamp_column(c)]
+
     with tab0:
         st.subheader("Clasificación automática")
         st.dataframe(
@@ -141,49 +163,367 @@ Esta app implementa **frecuencias, porcentajes y gráficos** para ítems estruct
         c3.metric("Total analizados", len(profiles))
 
     with tab1:
-        st.subheader("Frecuencias y porcentajes")
-        if not structured:
-            st.warning("No se detectaron ítems estructurados con datos.")
-        else:
-            choice = st.selectbox(
-                "Elegí un ítem estructurado",
-                options=[p.name for p in structured],
-                format_func=lambda x: next(p.short_name for p in structured if p.name == x),
-            )
-            col_series = df[choice]
-            prof = next(p for p in structured if p.name == choice)
+        st.subheader("Análisis cuantitativo")
+        timestamp_cols = [c for c in df.columns if is_timestamp_column(c)]
 
-            multiselect_mode = st.checkbox(
-                "Tratar como selección múltiple (separar por comas)",
-                value="múltiple" in prof.subtype.lower() or "comas" in prof.subtype.lower(),
+        with st.expander("Filtro comparativo (cohorte / fechas)", expanded=False):
+            fc1, fc2, fc3 = st.columns(3)
+            strata_col = fc1.selectbox(
+                "Filtrar por categoría (opcional)",
+                options=["(ninguno)"] + all_analysis_cols,
+                index=0,
+            )
+            strata_vals = []
+            if strata_col != "(ninguno)":
+                opts = sorted(df[strata_col].dropna().astype(str).unique())
+                strata_vals = fc2.multiselect(
+                    "Valores a incluir",
+                    options=opts,
+                    default=opts[: min(5, len(opts))],
+                )
+            date_pick = fc3.selectbox(
+                "Columna de fecha (opcional)",
+                options=["(ninguno)"] + timestamp_cols,
+                index=0,
+                key="date_filter_col",
+            )
+            df1, dt2 = st.columns(2)
+            d_from = df1.date_input("Desde", value=None, key="cmp_from")
+            d_to = dt2.date_input("Hasta", value=None, key="cmp_to")
+
+        df_work = df
+        if strata_col != "(ninguno)" and strata_vals:
+            df_work = filter_dataframe_comparison(
+                df_work,
+                strata_col,
+                strata_vals,
+                date_pick if date_pick != "(ninguno)" else None,
+                d_from,
+                d_to,
+            )
+        elif date_pick != "(ninguno)" and (d_from or d_to):
+            df_work = filter_dataframe_comparison(
+                df_work,
+                None,
+                [],
+                date_pick,
+                d_from,
+                d_to,
             )
 
-            if multiselect_mode:
-                exploded = explode_multiselect(col_series)
-                st.caption(f"Tokens tras separar comas: {len(exploded)} menciones.")
-                ft = frequency_table(exploded, top_n=30)
-                work_series = exploded
+        if len(df_work) < len(df):
+            st.caption(f"Submuestra activa: **{len(df_work)}** respondentes (dataset completo {len(df)}).")
+
+        s1, s2, s3, s4, s5, s6, s7, s8, s9 = st.tabs(
+            [
+                "1. Descriptivos",
+                "2. Cruces + χ²",
+                "3. Pruebas de significancia",
+                "4. Alfa Cronbach",
+                "5. PCA / AFE",
+                "6. Clustering",
+                "7. Predictivos + SHAP",
+                "8. CFA – semopy",
+                "9. Notas metodológicas",
+            ]
+        )
+
+        structured_work = classify_columns(df_work)
+        structured_w = [
+            p
+            for p in structured_work
+            if p.kind == "estructurada"
+            and p.n_non_null > 0
+            and p.subtype != "sin respuestas"
+        ]
+
+        # --- Subtab descriptivos ---
+        with s1:
+            if not structured_w:
+                st.warning("No hay ítems estructurados en la submuestra.")
             else:
-                ft = frequency_table(col_series, top_n=30)
-                work_series = col_series.dropna().astype(str)
+                choice = st.selectbox(
+                    "Ítem para descriptivos",
+                    options=[p.name for p in structured_w],
+                    format_func=lambda x: next(p.short_name for p in structured_w if p.name == x),
+                    key="desc_pick",
+                )
+                col_series = df_work[choice]
+                prof = next(p for p in structured_w if p.name == choice)
+                multi = st.checkbox(
+                    "Separar selección múltiple por comas",
+                    value="múltiple" in prof.subtype.lower() or "comas" in prof.subtype.lower(),
+                    key="desc_multi",
+                )
+                if multi:
+                    exploded = explode_multiselect(col_series)
+                    ft = frequency_table(exploded, top_n=40)
+                else:
+                    ft = frequency_table(col_series, top_n=40)
 
-            st.dataframe(ft, use_container_width=True, hide_index=True)
-            fig = px.bar(
-                ft.head(20),
-                x="frecuencia",
-                y="categoría",
-                orientation="h",
-                title="Top categorías",
+                st.markdown("#### Frecuencias y porcentajes")
+                st.dataframe(ft, use_container_width=True, hide_index=True)
+                fig = px.bar(
+                    ft.head(20),
+                    x="frecuencia",
+                    y="categoría",
+                    orientation="h",
+                    title="Top categorías",
+                )
+                fig.update_layout(yaxis={"categoryorder": "total ascending"})
+                st.plotly_chart(fig, use_container_width=True)
+
+                desc = descriptive_one_column(col_series)
+                st.markdown("#### Estadísticos (si el ítem es ordinal reconocible)")
+                mcols = st.columns(4)
+                mcols[0].metric("n válidos", desc["n_no_na"])
+                mcols[1].metric("Categorías", desc["n_categorías"])
+                if desc.get("media") is not None:
+                    mcols[2].metric("Media ordinal", f"{desc['media']:.2f}")
+                    mcols[3].metric("Mediana", f"{desc['mediana']:.2f}")
+                st.caption(
+                    f"Moda: **{desc['moda_etiqueta'][:90]}** — "
+                    f"Esquema inferido: {desc.get('esquema_ordinal_inferido') or 'no aplica'}"
+                )
+                if desc.get("desv_std") is not None and desc["desv_std"] == desc["desv_std"]:
+                    st.write(
+                        f"Desv. estándar: **{desc['desv_std']:.2f}** — "
+                        f"Rango [{desc.get('mínimo')}, {desc.get('máximo')}]"
+                    )
+                st.download_button(
+                    "Descargar frecuencias (CSV)",
+                    data=ft.to_csv(index=False).encode("utf-8"),
+                    file_name="frecuencias.csv",
+                    mime="text/csv",
+                )
+
+        # --- χ² ---
+        with s2:
+            st.markdown("#### Tabla cruzada y Chi-cuadrado")
+            cleft, cright = st.columns(2)
+            rcol = cleft.selectbox("Variable fila", all_analysis_cols, key="chi_row")
+            ccol = cright.selectbox("Variable columna", all_analysis_cols, index=min(1, len(all_analysis_cols) - 1), key="chi_col")
+            if rcol == ccol:
+                st.warning("Elegí dos variables distintas.")
+            else:
+                out = crosstab_chi_square(df_work, rcol, ccol)
+                st.dataframe(out["tabla"], use_container_width=True)
+                st.write(
+                    f"χ² = {out['chi2']:.3f}, gl = {out['gl']}, p = {out['p_valor']:.4f}, "
+                    f"Cramér V = {out['cramers_v']:.3f}, n = {out['n']}"
+                )
+
+        # --- Significancia grupal ---
+        with s3:
+            st.markdown("#### Comparar escala numérica (ordinal inferida) entre grupos")
+            g1, g2 = st.columns(2)
+            ycol = g1.selectbox("Variable respuesta (ordinal)", all_analysis_cols, key="sig_y")
+            gcol = g2.selectbox("Variable de agrupación", all_analysis_cols, key="sig_g")
+            ynum, _sch = detect_best_ordinal(df_work[ycol], min_cover=0.40)
+            sub = pd.DataFrame({"y": ynum, "g": df_work[gcol]}).dropna()
+            if len(sub) < 12:
+                st.warning("Pocos casos con codificación ordinal válida y grupo informado.")
+            else:
+                res = compare_numeric_across_groups(sub["y"], sub["g"])
+                st.write("Tamaños de grupo:", res.group_sizes)
+                if res.message:
+                    st.caption(res.message)
+                if res.n_groups == 2:
+                    st.write(
+                        f"**t de Student (Welch)** t = {res.t_stat:.3f}, p = {res.t_p:.4f}  \n"
+                        f"**Mann–Whitney U** U = {res.mw_U:.3f}, p = {res.mw_p:.4f}"
+                    )
+                anova_txt = (
+                    f"**ANOVA** F = {res.anova_F:.4f}, p = {res.anova_p:.4f}"
+                    if res.anova_F is not None and res.anova_p is not None
+                    else "**ANOVA** no disponible."
+                )
+                kw_txt = (
+                    f"**Kruskal–Wallis** H = {res.kruskal_H:.4f}, p = {res.kruskal_p:.4f}"
+                    if res.kruskal_H is not None and res.kruskal_p is not None
+                    else "**Kruskal–Wallis** no disponible."
+                )
+                st.markdown(anova_txt + "  \n" + kw_txt)
+
+        # --- Cronbach ---
+        with s4:
+            st.markdown("#### Consistencia interna (Alfa de Cronbach)")
+            items_c = st.multiselect(
+                "Ítems Likert / frecuencia (mínimo 2 columnas)",
+                options=all_analysis_cols,
+                default=[],
             )
-            fig.update_layout(yaxis={"categoryorder": "total ascending"})
-            st.plotly_chart(fig, use_container_width=True)
+            if len(items_c) >= 2:
+                mat = likert_numeric_matrix(df_work, items_c).dropna(how="any")
+                if len(mat) < 20:
+                    st.warning("Muy pocos casos completos tras listwise deletion.")
+                else:
+                    alpha = cronbach_alpha(mat)
+                    st.metric("Alfa de Cronbach", f"{alpha:.3f}", help="Valores >0.7 suelen considerarse aceptables (regla orientativa).")
+                    st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
+                    st.dataframe(mat.describe().T, use_container_width=True)
+            else:
+                st.info("Seleccioná al menos dos ítems de la misma escala.")
 
-            csv = ft.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Descargar tabla (CSV)",
-                data=csv,
-                file_name="frecuencias.csv",
-                mime="text/csv",
+        # --- PCA / AFE ---
+        with s5:
+            st.markdown("#### Componentes principales + análisis factorial exploratorio")
+            items_p = st.multiselect(
+                "Columnas Likert escaladas como continuas ordinarias",
+                options=all_analysis_cols,
+                key="pca_items",
+            )
+            n_pc = st.slider("Dimensiones PCA", 2, min(12, max(3, len(items_p))), min(6, len(items_p) or 2))
+            nf = st.slider(
+                "Factores AFE",
+                2,
+                min(8, max(2, len(items_p) - 1)),
+                (min(4, len(items_p) - 1) if len(items_p) > 3 else 2),
+            )
+            if len(items_p) >= 3:
+                Xnum = likert_numeric_matrix(df_work, items_p).dropna(how="any")
+                if len(Xnum) < 40:
+                    st.warning("Necesitas más observaciones completas para factores estables.")
+                else:
+                    _scores, loadings, var = run_pca_with_loadings(Xnum, n_components=min(n_pc, Xnum.shape[1]))
+                    st.markdown("##### Varianza explicada (PCA)")
+                    st.bar_chart(pd.Series(var, index=[f"PC{i+1}" for i in range(len(var))]))
+                    st.markdown("##### Cargas PCA")
+                    st.dataframe(loadings.round(3), use_container_width=True)
+                    try:
+                        load_efa, eig, _ = run_efa(Xnum, n_factors=min(nf, Xnum.shape[1] - 1))
+                        st.markdown("##### Cargas rotadas (Varimax)")
+                        st.dataframe(load_efa.round(3), use_container_width=True)
+                        if eig[0] is not None:
+                            st.caption("Autovalores (AFE): " + ", ".join(f"{v:.2f}" for v in eig[0][: min(8, len(eig[0]))]))
+                    except Exception as exc:
+                        st.warning(f"AFE no convergió o faltan datos: {exc}")
+            else:
+                st.info("Seleccioná al menos tres ítems correlacionados conceptualmente.")
+
+        # --- Clustering ---
+        with s6:
+            st.markdown("#### Segmentación (K-means, DBSCAN, jerárquico)")
+            feat_c = st.multiselect("Variables para perfiles", options=all_analysis_cols, key="clust_feat")
+            mode = st.radio("Algoritmo", ["K-means", "DBSCAN", "Jerárquico (dendrograma)"], horizontal=True)
+            if len(feat_c) >= 2:
+                Xf, expl = prepare_feature_matrix(df_work, feat_c)
+                st.caption("Codificación: " + " | ".join(f"{k[:40]}: {v}" for k, v in list(expl.items())[:6]))
+                if Xf.empty:
+                    st.error("No se pudo construir la matriz de rasgos (revisá cardinalidades).")
+                else:
+                    Xf = Xf.astype(float).fillna(Xf.median(numeric_only=True))
+                    if mode == "K-means":
+                        k = st.slider("k (grupos)", 2, 9, 3)
+                        lbl, centers, inertia, _ = kmeans_profiles(Xf, k=k)
+                        st.metric("Inercia final", f"{inertia:,.1f}")
+                        st.dataframe(centers.round(2), use_container_width=True)
+                        vc = lbl.value_counts().sort_index().rename_axis("cluster").reset_index(name="n")
+                        st.dataframe(vc, hide_index=True)
+                    elif mode == "DBSCAN":
+                        eps = st.slider("eps", 0.3, 2.5, 0.85, step=0.05)
+                        ms = st.slider("min_samples", 3, 20, 7)
+                        lbl, noise_rate, _ = dbscan_profiles(Xf, eps, ms)
+                        st.metric("Observaciones ruido (-1)", f"{noise_rate*100:.1f}%")
+                        st.dataframe(lbl.value_counts().rename_axis("cluster").reset_index(name="n"))
+                    else:
+                        st.warning("Jerárquico: sólo muestra hasta 120 respondentes seleccionados al azar (legibilidad).")
+                        samp = Xf.sample(min(120, len(Xf)), random_state=7)
+                        fig = hierarchical_linkage_plot(samp)
+                        st.pyplot(fig)
+                        plt.close(fig)
+            else:
+                st.info("Elegí al menos dos variables.")
+
+        # --- Predictivos ---
+        with s7:
+            st.markdown("#### Modelos predictivos + interpretabilidad (SHAP orientativo)")
+            target = st.selectbox("Variable objetivo (categoría a predecir)", all_analysis_cols, key="tgt")
+            feats = st.multiselect(
+                "Predictores",
+                options=[c for c in all_analysis_cols if c != target],
+                default=[],
+                key="pred_feats",
+            )
+            shap_pick = st.selectbox(
+                "Modelo para explicación SHAP",
+                ["Random Forest", "Regresión logística", "Árbol de decisión", "XGBoost"],
+            )
+            if len(feats) >= 2:
+                Xm, expl = prepare_feature_matrix(df_work, feats)
+                y_series = df_work[target].astype(str)
+                if Xm.empty:
+                    st.error("Matriz predictores vacía.")
+                else:
+                    Xm = Xm.astype(float).fillna(Xm.median())
+                    Xm = Xm.loc[y_series.notna()].copy()
+                    y_series = y_series.loc[Xm.index]
+                    try:
+                        res, _ = fit_predictive_suite(Xm, y_series)
+                        st.dataframe(
+                            pd.DataFrame(
+                                [{"modelo": k, "accuracy_val": round(v["accuracy"], 3)} for k, v in res.items()]
+                            ),
+                            hide_index=True,
+                            use_container_width=True,
+                        )
+                        if shap_pick not in res and shap_pick == "XGBoost":
+                            st.caption("XGBoost omitido si no está disponible.")
+                        model_key = shap_pick if shap_pick in res else next(iter(res))
+                        mcidx = None
+                        if hasattr(res[model_key]["encoder"], "classes_") and len(res[model_key]["encoder"].classes_) > 2:
+                            mcidx = st.slider(
+                                "Clase SHAP (índice)",
+                                0,
+                                len(res[model_key]["encoder"].classes_) - 1,
+                                0,
+                            )
+                        X_te = res[model_key]["X_test"]
+                        sample_rows = min(400, len(X_te))
+                        Xs = X_te.sample(sample_rows, random_state=17)
+                        try:
+                            fig = shap_summary_figure(res[model_key]["model"], Xs, multiclass_class=mcidx)
+                            st.pyplot(fig)
+                            plt.close(fig)
+                        except Exception as exc:
+                            st.warning(f"SHAP omitido: {exc}")
+                    except Exception as exc:
+                        st.error(str(exc))
+            else:
+                st.info("Seleccioná al menos dos predictores.")
+
+        # --- CFA semopy ---
+        with s8:
+            st.markdown("#### CFA simple (un factor latente)")
+            lat = st.text_input("Nombre del factor latente (sin espacios raros)", value="CompetDig")
+            cfa_items = st.multiselect("Índicadores observados", options=all_analysis_cols, key="cfa_items")
+            if len(cfa_items) >= 3:
+                model, tabla, err = optional_sem_estimate(df_work, lat, cfa_items)
+                if model is None:
+                    st.warning(err or "No se pudo estimar el CFA.")
+                else:
+                    st.success("Modelo estimado.")
+                    st.dataframe(tabla.head(), use_container_width=True)
+                    try:
+                        from semopy.stats import calc_stats  # noqa: PLC0415
+
+                        stat_df = calc_stats(model)
+                        st.dataframe(stat_df, use_container_width=True)
+                    except Exception as exc:
+                        st.caption(f"Métricas globales desde semopy no disponibles: {exc}")
+            else:
+                st.info("Seleccioná tres o más ítems para especificar la ecuación de medición.")
+
+        with s9:
+            st.markdown(
+                """
+Los bloques siguientes están **implementados**: descriptivos, cruces χ², t/Mann‑Whitney, ANOVA/Kruskal, Cronbach, PCA/AFE Varimax,
+K‑means / DBSCAN / jerárquico, regresión logística / árbol / bosque aleatorio / XGBoost + **SHAP** (explicaciones locales agregadas), y **CFA de un factor** con `semopy`.
+
+**SEM complejo** con varios factores correlacionados, senderos causales mediados y ajustes avanzados (CFI/TLI/RMSEA detallados) conviene hacerlo en **lavaan (R)** o **SmartPLS / AMOS** y reportar métricas de bondad de ajuste según tus supuestos de distribución.
+
+**Análisis longitudinal** multicohorte suele combinar modelo jerárquico o ANOVA repetida; acá sólo aplicamos **filtros** de fecha/unidad como primer paso descriptivo.
+                """
             )
 
     with tab2:
@@ -259,13 +599,17 @@ Esta app implementa **frecuencias, porcentajes y gráficos** para ítems estruct
     with tab3:
         st.markdown(
             """
-### Análisis cuantitativos típicos en encuestas
+### Cobertura de la pestaña *Análisis cuantitativo*
 
-- **Descriptivos**: n, %, moda en escalas; gráficos de barras ordenadas.
-- **Asociación entre dos categóricas**: tablas cruzadas, chi‑cuadrado.
-- **Escalas Likert**: ítems a numéricos, promedios por bloque, fiabilidad (alfa).
-- **Comparación de grupos**: medianas y pruebas no paramétricas (Kruskal‑Wallis / Mann‑Whitney) si las distribuciones son asimétricas.
-- **Modelado**: regresión ordinal o logit para predecir actitud según año de carrera, acceso a PC, etc.
+1. **Descriptivos** (frecuencias, porcentajes, media/mediana/desv. cuando la escala ordinal se reconoce).
+2. **Pruebas de significancia**: χ², t de Student (Welch), Mann–Whitney, ANOVA, Kruskal–Wallis.
+3. **Alfa de Cronbach** sobre bloques Likert codificados.
+4. **Análisis factorial**: PCA más AFE exploratorio rotado Varimax (`factor_analyzer`).
+5. **Clustering**: K‑means, DBSCAN, dendrograma jerárquico.
+6. **Modelos predictivos** multinivel (accuracy en hold‑out): logística, árboles, Random Forest, XGBoost.
+7. **XAI**: gráficos SHAP tipo *summary bar*.
+8. **CFA factor único** vía `semopy` — modelos estructurales completos siguen mejor en lavaan/SmartPLS/AMOS.
+9. **Comparativo/longitudinal inicial**: filtros por categorías y fechas (marca temporal) sobre la muestra antes de cualquier modelo.
 
 ### Análisis cualitativos en esta app
 
