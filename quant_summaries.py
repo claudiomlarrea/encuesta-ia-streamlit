@@ -746,9 +746,8 @@ def predictive_explanatory(
         )
     if shap_disponible:
         base += (
-            f"**SHAP** (árbol de barras + **tabla CSV** con % relativos sobre |SHAP| medio) está activo con "
-            f"**{modelo_shap}**; revisá la **clase objetivo** elegida en el deslizador cuando haya muchas categorías. "
-            "**Árbol + reglas** siguen disponibles como segunda lectura.\n\n"
+            f"**SHAP** está activo con **{modelo_shap}** (figura + **CSV**: detalle por columna modelo y **agrupado por pregunta**); "
+            "usá **clase SHAP** en multiclase. **Árbol + reglas** siguen como segunda lectura.\n\n"
         )
     else:
         base += (

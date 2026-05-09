@@ -7,6 +7,7 @@ import re
 import textwrap
 from collections import OrderedDict
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -572,12 +573,16 @@ def prepare_feature_matrix(
     cols: list[str],
     max_dummy: int = 22,
     inverted_cols: set[str] | None = None,
-) -> tuple[pd.DataFrame, dict[str, str]]:
+) -> tuple[pd.DataFrame, dict[str, str], dict[str, str]]:
     """
     Produce matriz numérica: ordenales automáticas; baja cardinalidad con dummies.
+
+    ``encoded_column_to_source`` mapea **cada** columna numérica producida (`X.columns`)
+    a la columna original del dataframe (`cols`), para poder **agrupar** SHAP u otros diagnosticos por pregunta.
     """
     inverted_cols = inverted_cols or set()
     explanations: dict[str, str] = {}
+    encoded_column_to_source: dict[str, str] = {}
     mats: list[pd.DataFrame] = []
     for c in cols:
         s = df[c]
@@ -585,20 +590,24 @@ def prepare_feature_matrix(
         if coded.notna().mean() >= 0.42:
             if c in inverted_cols:
                 coded = invert_ordinal_series(coded)
-            mats.append(pd.DataFrame({f"{c}__ord": coded}))
+            oc = f"{c}__ord"
+            mats.append(pd.DataFrame({oc: coded}))
+            encoded_column_to_source[oc] = c
             explanations[c] = f"Ordinal inferido ({scheme})"
             continue
         u = s.dropna().astype(str).nunique()
         if u <= max_dummy:
             d = pd.get_dummies(s.astype(str), prefix=c.replace("\n", " ")[:48], dummy_na=False)
             mats.append(d)
+            for dn in d.columns:
+                encoded_column_to_source[str(dn)] = c
             explanations[c] = f"Categórica one‑hot ({u} niveles)"
         else:
             explanations[c] = f"Omitida (alta cardinalidad: {u} niveles; reducila o ordinalizá)."
     if not mats:
-        return pd.DataFrame(), explanations
+        return pd.DataFrame(), explanations, {}
     X = pd.concat(mats, axis=1)
-    return X, explanations
+    return X, explanations, encoded_column_to_source
 
 
 def fit_predictive_suite(
@@ -827,6 +836,41 @@ def shap_matrix_for_class(model: Any, X_sample: pd.DataFrame, multiclass_class: 
     expl = shap.LinearExplainer(clf, np.asarray(bg, dtype=float))
     raw = expl.shap_values(np.asarray(X_sample, dtype=float))
     return _unpack(raw)
+
+
+def aggregate_shap_table_by_question(
+    tabla_shap: pd.DataFrame,
+    encoded_column_to_source: dict[str, str],
+    *,
+    format_source: Callable[[str], str] | None = None,
+) -> pd.DataFrame:
+    """
+    Pasa de importancia por **columna del modelo** (dummies por nivel, u ``__ord``) a importancia por
+    **pregunta original** sumando los ``|SHAP| medio`` de todas las ramas codificadas y renormando el %.
+
+    Interpretación habitual: niveles mutuamente excluyentes aportan cada uno su efecto medio; sumarlos
+    da una **lectura práctica por ítem**, no probabilidad estadística causal.
+    """
+    if tabla_shap.empty or "|SHAP| medio" not in tabla_shap.columns or "variable" not in tabla_shap.columns:
+        return pd.DataFrame(columns=["pregunta", "|SHAP| medio", "contribución_relativa_%"])
+
+    fmt = format_source or (lambda z: z)
+    t = tabla_shap[["variable", "|SHAP| medio"]].copy()
+    t["_src_col"] = t["variable"].astype(str).map(lambda v: encoded_column_to_source.get(v, v))
+    g = (
+        t.groupby("_src_col", as_index=False)["|SHAP| medio"]
+        .sum()
+        .sort_values("|SHAP| medio", ascending=False)
+        .reset_index(drop=True)
+    )
+    tot = float(g["|SHAP| medio"].sum())
+    if tot > 0:
+        g["contribución_relativa_%"] = np.round(100.0 * g["|SHAP| medio"].astype(float) / tot, 2)
+    else:
+        g["contribución_relativa_%"] = 0.0
+    g["|SHAP| medio"] = np.round(g["|SHAP| medio"].astype(float), 6)
+    g["pregunta"] = g["_src_col"].map(fmt)
+    return g[["pregunta", "|SHAP| medio", "contribución_relativa_%"]]
 
 
 def shap_relative_importance_table_from_matrix(

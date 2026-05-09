@@ -19,6 +19,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from quant_advanced import (
+    aggregate_shap_table_by_question,
     compare_numeric_across_groups,
     crosstab_chi_square,
     cronbach_alpha,
@@ -911,7 +912,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             "Tiene sentido para cortar la muestra en grupos a lo largo de ese eje; agregá más variables si buscás perfiles **multivariados**."
                         )
                     if len(feat_c) >= 1:
-                        Xf, expl = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
+                        Xf, expl, _ = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
                         st.caption("Codificación: " + " | ".join(f"{k[:40]}: {v}" for k, v in list(expl.items())[:6]))
                         if Xf.empty:
                             st.error("No se pudo construir la matriz de rasgos (revisá cardinalidades).")
@@ -1006,7 +1007,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         ["Random Forest", "Regresión logística", "Árbol de decisión", "XGBoost"],
                     )
                     if len(feats) >= 2:
-                        Xm, expl = prepare_feature_matrix(df_work, feats, inverted_cols=invert_set)
+                        Xm, expl, Xm_enc_map = prepare_feature_matrix(df_work, feats, inverted_cols=invert_set)
                         y_series = df_work[target].astype(str)
                         if Xm.empty:
                             st.error("Matriz predictores vacía.")
@@ -1041,7 +1042,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 shap_mostro = False
                                 if _HAS_SHAP:
                                     try:
-                                        st.markdown("##### Resumen visual SHAP (barras por variable)")
+                                        st.caption(
+                                            "El gráfico resume **columnas que entran al modelo** (cada nivel one‑hot u ordinal por separado). "
+                                            "**Abajo**, la tabla *Por pregunta del cuestionario* suma esos niveles bajo **la misma pregunta** original."
+                                        )
+                                        st.markdown("##### Resumen visual SHAP (barras por columna modelo)")
                                         fig, tabla_shap = shap_diagnostic_bundle(
                                             res[model_key]["model"],
                                             Xs,
@@ -1050,24 +1055,52 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                         )
                                         st.pyplot(fig)
                                         plt.close(fig)
-                                        st.markdown("##### Pesos relativos (|SHAP| medio ⇒ % dentro de esta muestra)")
+                                        tabla_preg = aggregate_shap_table_by_question(
+                                            tabla_shap,
+                                            Xm_enc_map,
+                                            format_source=_fmt_analysis_col,
+                                        )
+                                        st.markdown(
+                                            "##### Por pregunta del cuestionario (peso relativo agregando niveles dicotómicos / ordinal)"
+                                        )
                                         st.caption(
-                                            "Los **contribución_relativa_%** suman 100 % entre las rasgos estimadas sobre las filas muestradas; "
-                                            "es una lectura **orientativa del modelo**, no causa ni tamaño muestral efectivo."
+                                            "Se **suman** los **|SHAP| medio** de todas las ramas codificadas de una misma pregunta Excel y los "
+                                            "**contribución_relativa_%** se **renormalizan a 100 %** sobre las preguntas listadas "
+                                            "(lectura orientativa, no causa)."
                                         )
                                         st.dataframe(
-                                            tabla_shap,
+                                            tabla_preg,
                                             hide_index=True,
                                             use_container_width=True,
                                         )
                                         st.download_button(
-                                            label="Descargar tabla SHAP — importancia relativa (.csv)",
-                                            data=tabla_shap.to_csv(index=False).encode("utf-8"),
-                                            file_name="shap_importancia_relativa.csv",
+                                            label="Descargar SHAP agrupado por pregunta (.csv)",
+                                            data=tabla_preg.to_csv(index=False).encode("utf-8"),
+                                            file_name="shap_importancia_por_pregunta.csv",
                                             mime="text/csv",
-                                            key="dl_shap_rel_pct",
-                                            help="Misma muestra que el gráfico (subconjunto del conjunto de test).",
+                                            key="dl_shap_by_question",
+                                            help="Filas fusionadas desde la tabla detallada; misma muestra que el gráfico.",
                                         )
+                                        with st.expander(
+                                            "Detalle por columna del modelo (cada nivel one‑hot u ordinal)",
+                                            expanded=False,
+                                        ):
+                                            st.caption(
+                                                "Los **%** siguen ponderando **solo** entre columnas modelo (son los que aparecen en barras)."
+                                            )
+                                            st.dataframe(
+                                                tabla_shap,
+                                                hide_index=True,
+                                                use_container_width=True,
+                                            )
+                                            st.download_button(
+                                                label="Descargar tabla SHAP detalle por columna (.csv)",
+                                                data=tabla_shap.to_csv(index=False).encode("utf-8"),
+                                                file_name="shap_importancia_por_columna_modelo.csv",
+                                                mime="text/csv",
+                                                key="dl_shap_rel_pct",
+                                                help="Misma muestra que el gráfico (subconjunto del conjunto de test).",
+                                            )
                                         shap_mostro = True
                                     except Exception as exc:
                                         st.warning(f"SHAP omitido: {exc}")
