@@ -93,14 +93,21 @@ from survey_guided import (
     GuidedSpec,
 )
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
+from ui_theme import apply_plotly_style, configure_matplotlib, inject_theme, render_brand_header
 
 APP_NAME = "Encuesta Clara"
+APP_TAGLINE = (
+    "Del Excel de Google Forms a tablas, cruces y temas del texto libre. "
+    "Clasifica ítems estructurados y abiertos; análisis cuantitativo y cualitativo en español."
+)
 
 st.set_page_config(
     page_title=APP_NAME,
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_theme()
+configure_matplotlib()
 
 def _bloque_interpretacion_cuantitativa(texto_md: str) -> None:
     st.markdown("---")
@@ -204,11 +211,7 @@ def main() -> None:
         st.session_state.loaded_df = None
         st.session_state.loaded_name = None
 
-    st.title(APP_NAME)
-    st.caption(
-        "Del Excel de Google Forms a tablas, cruces y temas del texto libre. "
-        "Clasifica ítems estructurados y abiertos; análisis cuantitativo y cualitativo en español."
-    )
+    render_brand_header(APP_NAME, APP_TAGLINE)
 
     with st.sidebar:
         st.header("Datos")
@@ -497,7 +500,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     title="Frecuencias (top 15)",
                                 )
                                 fig.update_layout(xaxis_tickangle=-35, height=420)
-                                st.plotly_chart(fig, use_container_width=True)
+                                st.plotly_chart(apply_plotly_style(fig), use_container_width=True)
 
                         _bloque_interpretacion_cuantitativa(
                             interpret_guided(
@@ -744,7 +747,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             title="Top categorías",
                         )
                         fig.update_layout(yaxis={"categoryorder": "total ascending"})
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(apply_plotly_style(fig), use_container_width=True)
         
                         desc = descriptive_one_column(col_series, inverted=(choice in invert_set))
                         st.markdown("#### Estadísticos (si el ítem es ordinal reconocible)")
@@ -1621,7 +1624,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     with c_sent1:
                         st.dataframe(dist, use_container_width=True, hide_index=True)
                         fig2 = px.pie(dist, names="sentimiento", values="n", hole=0.35)
-                        st.plotly_chart(fig2, use_container_width=True)
+                        st.plotly_chart(apply_plotly_style(fig2), use_container_width=True)
                     with c_sent2:
                         with st.expander("Ejemplos aleatorios por tono (léxico o modelo)"):
                             samp = pd.DataFrame({"texto": filtered, "sentimiento": results})

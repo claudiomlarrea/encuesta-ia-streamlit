@@ -1,0 +1,13 @@
+# Encuesta Clara — tema claro, cálido y legible
+# https://docs.streamlit.io/develop/api-reference/configuration/config.toml
+
+[theme]
+base = "light"
+primaryColor = "#0284C7"
+backgroundColor = "#FDF8F3"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1E3A5F"
+font = "sans serif"
+
+[client]
+toolbarMode = "viewer"
