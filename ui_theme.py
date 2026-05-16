@@ -1,6 +1,7 @@
 """Estética Encuesta Clara alineada al manual UCCuyo y al Observatorio de IA."""
 from __future__ import annotations
 
+import base64
 import html
 from pathlib import Path
 
@@ -41,33 +42,43 @@ def inject_theme() -> None:
         }}
 
         [data-testid="stAppViewContainer"] [data-testid="stMain"] .block-container {{
-            padding-top: 0.85rem;
+            padding-top: 1.25rem;
             padding-bottom: 2.5rem;
-            padding-left: 2rem !important;
-            padding-right: 2rem !important;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
             max-width: 1180px;
         }}
 
-        /* Primera fila del encabezado institucional (logo + título) */
-        [data-testid="stMain"] [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"]:first-child
-        [data-testid="stHorizontalBlock"],
-        [data-testid="stMain"] > div > div > div[data-testid="stHorizontalBlock"]:first-of-type {{
-            align-items: center !important;
-            gap: 1rem !important;
-            padding-left: 0.25rem !important;
-            margin-left: 0 !important;
-        }}
-        [data-testid="stMain"] [data-testid="stImage"] img {{
-            max-width: 88px;
-            width: 88px !important;
-            height: auto !important;
-            margin: 0 !important;
-        }}
-
-        .ec-institutional-rule {{
-            border: none;
-            border-bottom: 3px solid {GREEN};
+        .ec-header-box {{
+            box-sizing: border-box;
+            width: 100%;
+            max-width: 100%;
             margin: 0 0 0.85rem 0;
+            padding: 0.25rem 0 0.75rem 0;
+            overflow: visible;
+            border-bottom: 3px solid {GREEN};
+        }}
+        .ec-header-inner {{
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            width: 100%;
+            max-width: 100%;
+        }}
+        .ec-header-logo {{
+            flex: 0 0 84px;
+            width: 84px;
+            min-width: 84px;
+        }}
+        .ec-header-logo img {{
+            display: block;
+            width: 84px;
+            height: 84px;
+            object-fit: contain;
+        }}
+        .ec-header-text {{
+            flex: 1 1 auto;
+            min-width: 0;
         }}
         .ec-institutional-title {{
             margin: 0.15rem 0 0;
@@ -194,19 +205,34 @@ def inject_theme() -> None:
     )
 
 
+def _logo_base64() -> str:
+    if not LOGO_PATH.is_file():
+        return ""
+    return base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+
+
 def render_institutional_header() -> None:
     """Cabecera: logo y nombre del Observatorio de IA — UCCuyo."""
-    col_logo, col_text = st.columns([0.14, 0.86], gap="medium")
-    with col_logo:
-        if LOGO_PATH.is_file():
-            st.image(str(LOGO_PATH), width=88)
-    with col_text:
-        st.markdown(
-            f'<p class="ec-institutional-title">{html.escape(OBSERVATORIO_NAME)}</p>'
-            f'<p class="ec-institutional-sub">{html.escape(INSTITUTION_NAME)}</p>',
-            unsafe_allow_html=True,
-        )
-    st.markdown('<hr class="ec-institutional-rule" />', unsafe_allow_html=True)
+    name = html.escape(OBSERVATORIO_NAME)
+    inst = html.escape(INSTITUTION_NAME)
+    b64 = _logo_base64()
+    logo_html = (
+        f'<img src="data:image/png;base64,{b64}" alt="Logo {name}" />' if b64 else ""
+    )
+    st.markdown(
+        f"""
+        <div class="ec-header-box">
+            <div class="ec-header-inner">
+                <div class="ec-header-logo">{logo_html}</div>
+                <div class="ec-header-text">
+                    <p class="ec-institutional-title">{name}</p>
+                    <p class="ec-institutional-sub">{inst}</p>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_brand_header(app_name: str, subtitle: str) -> None:
