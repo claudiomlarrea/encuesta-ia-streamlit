@@ -300,6 +300,11 @@ def _csv_row(*cells: Any) -> str:
     return ",".join(_csv_cell(c) for c in cells)
 
 
+def _csv_line(*cells: Any) -> str:
+    """Fila CSV terminada en salto de línea (evita pegar celdas al exportar)."""
+    return _csv_row(*cells) + "\n"
+
+
 def build_guided_report_csv(
     *,
     spec: GuidedSpec,
@@ -345,9 +350,9 @@ def build_guided_report_csv(
     )
     if filt_lines:
         for fl in filt_lines:
-            w(_csv_row("", fl))
+            w(_csv_line(fl))
     else:
-        w(_csv_row("", "Toda la encuesta (sin filtros de cohorte)"))
+        w(_csv_line("Toda la encuesta (sin filtros de cohorte)"))
     w("\n")
     w(
         _csv_row(
@@ -386,25 +391,25 @@ def build_significance_report_csv(
     buf = io.StringIO()
     w = buf.write
 
-    w(_csv_row("Encuesta Clara — Informe prueba de significancia"))
+    w(_csv_line("Encuesta Clara — Informe prueba de significancia"))
     w("\n")
-    w(_csv_row("1. Variable respuesta (ordinal)", y_label))
-    w(_csv_row("2. Variable de agrupación", g_label))
-    w(_csv_row("Esquema ordinal inferido", ordinal_scheme.replace("\n", " ")[:500]))
+    w(_csv_line("1. Variable respuesta (ordinal)", y_label))
+    w(_csv_line("2. Variable de agrupación", g_label))
+    w(_csv_line("Esquema ordinal inferido", ordinal_scheme.replace("\n", " ")[:500]))
     if inverted:
-        w(_csv_row("", "Escala invertida (ítem marcado en protocolo inverso)"))
+        w(_csv_line("Escala invertida (ítem marcado en protocolo inverso)"))
     w(
-        _csv_row(
+        _csv_line(
             "Casos analizados",
             f"{n_pairs} filas válidas (respuesta + grupo) · submuestra {n_work} · encuesta {n_dataset}",
         )
     )
-    w(_csv_row("Número de grupos (k)", res.n_groups))
+    w(_csv_line("Número de grupos (k)", res.n_groups))
     if res.message:
-        w(_csv_row("Nota", res.message))
+        w(_csv_line("Nota", res.message))
     w("\n")
 
-    w(_csv_row("3. Tamaños de grupo"))
+    w(_csv_line("3. Tamaños de grupo"))
     w("\n")
     sizes_df = pd.DataFrame(
         [{"Grupo": k, "n": v} for k, v in res.group_sizes.items()]
@@ -412,7 +417,7 @@ def build_significance_report_csv(
     sizes_df.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
-    w(_csv_row("4. Resumen por grupo (escala ordinal codificada)"))
+    w(_csv_line("4. Resumen por grupo (escala ordinal codificada)"))
     w("\n")
     desc = (
         sample.groupby("g", dropna=False)["y"]
@@ -424,7 +429,7 @@ def build_significance_report_csv(
     desc.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
-    w(_csv_row("5. Pruebas estadísticas"))
+    w(_csv_line("5. Pruebas estadísticas"))
     w("\n")
     test_rows: list[dict[str, Any]] = []
     if res.n_groups == 2:
@@ -463,7 +468,7 @@ def build_significance_report_csv(
     if test_rows:
         pd.DataFrame(test_rows).to_csv(buf, index=False, lineterminator="\n")
     else:
-        w(_csv_row("", "No hay pruebas disponibles con los datos actuales."))
+        w(_csv_line("No hay pruebas disponibles con los datos actuales."))
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
@@ -486,41 +491,41 @@ def build_cronbach_report_csv(
     buf = io.StringIO()
     w = buf.write
 
-    w(_csv_row("Encuesta Clara — Informe Alfa de Cronbach"))
+    w(_csv_line("Encuesta Clara — Informe Alfa de Cronbach"))
     w("\n")
-    w(_csv_row("1. Ítems incluidos en el análisis"))
+    w(_csv_line("1. Ítems incluidos en el análisis"))
     for lab in item_labels:
-        w(_csv_row("", lab))
+        w(_csv_line(lab))
     w("\n")
-    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    w(_csv_line("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
     if alpha is not None and alpha == alpha:
-        w(_csv_row("Alfa de Cronbach", f"{alpha:.4f}"))
-        w(_csv_row("Filas list‑wise (todas las escalas codificadas)", n_cases))
-        w(_csv_row("Cantidad de ítems", n_items))
+        w(_csv_line("Alfa de Cronbach", f"{alpha:.4f}"))
+        w(_csv_line("Filas list‑wise (todas las escalas codificadas)", n_cases))
+        w(_csv_line("Cantidad de ítems", n_items))
     else:
-        w(_csv_row("Alfa de Cronbach", "No calculable (pocos casos completos o varianza nula)"))
+        w(_csv_line("Alfa de Cronbach", "No calculable (pocos casos completos o varianza nula)"))
     if warnings:
-        w(_csv_row("Advertencias", " | ".join(warnings[:6])))
+        w(_csv_line("Advertencias", " | ".join(warnings[:6])))
     w("\n")
 
-    w(_csv_row("2. Resumen de superposición (list‑wise)"))
+    w(_csv_line("2. Resumen de superposición (list‑wise)"))
     w("\n")
     diag_sum.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
-    w(_csv_row("3. Diagnóstico por ítem (codificación ordinal)"))
+    w(_csv_line("3. Diagnóstico por ítem (codificación ordinal)"))
     w("\n")
     diag_tbl.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
     if rep_cron is not None and not rep_cron.empty:
-        w(_csv_row("4. Escala efectiva por ítem"))
+        w(_csv_line("4. Escala efectiva por ítem"))
         w("\n")
         rep_cron.to_csv(buf, index=False, lineterminator="\n")
         w("\n")
 
     if mat_describe is not None and not mat_describe.empty:
-        w(_csv_row("5. Estadísticos por ítem (escala codificada, casos completos)"))
+        w(_csv_line("5. Estadísticos por ítem (escala codificada, casos completos)"))
         w("\n")
         mat_describe.to_csv(buf, lineterminator="\n")
         w("\n")
@@ -552,63 +557,63 @@ def build_pca_efa_report_csv(
     buf = io.StringIO()
     w = buf.write
 
-    w(_csv_row("Encuesta Clara — Informe PCA / AFE"))
+    w(_csv_line("Encuesta Clara — Informe PCA / AFE"))
     w("\n")
-    w(_csv_row("1. Ítems incluidos"))
+    w(_csv_line("1. Ítems incluidos"))
     for lab in item_labels:
-        w(_csv_row("", lab))
+        w(_csv_line(lab))
     w("\n")
-    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
-    w(_csv_row("Casos list-wise (todos los ítems codificados)", n_complete))
-    w(_csv_row("Dimensiones PCA solicitadas", n_pc_requested))
-    w(_csv_row("Factores AFE solicitados", n_factors_requested))
-    w(_csv_row("Correlaciones policóricas", "Sí" if use_poly else "No"))
-    w(_csv_row("Nombre factor (export lavaan)", latent_name))
+    w(_csv_line("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    w(_csv_line("Casos list-wise (todos los ítems codificados)", n_complete))
+    w(_csv_line("Dimensiones PCA solicitadas", n_pc_requested))
+    w(_csv_line("Factores AFE solicitados", n_factors_requested))
+    w(_csv_line("Correlaciones policóricas", "Sí" if use_poly else "No"))
+    w(_csv_line("Nombre factor (export lavaan)", latent_name))
     if status_note:
-        w(_csv_row("Estado del análisis", status_note))
+        w(_csv_line("Estado del análisis", status_note))
     if scale_warnings:
-        w(_csv_row("Avisos de escala", " | ".join(scale_warnings[:6])))
+        w(_csv_line("Avisos de escala", " | ".join(scale_warnings[:6])))
     w("\n")
 
-    w(_csv_row("2. Resumen de superposición (list-wise)"))
+    w(_csv_line("2. Resumen de superposición (list-wise)"))
     w("\n")
     diag_sum.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
-    w(_csv_row("3. Diagnóstico por ítem (codificación ordinal)"))
+    w(_csv_line("3. Diagnóstico por ítem (codificación ordinal)"))
     w("\n")
     diag_tbl.to_csv(buf, index=False, lineterminator="\n")
     w("\n")
 
     if rep_pca is not None and not rep_pca.empty:
-        w(_csv_row("4. Escala efectiva por ítem (casos completos)"))
+        w(_csv_line("4. Escala efectiva por ítem (casos completos)"))
         w("\n")
         rep_pca.to_csv(buf, index=False, lineterminator="\n")
         w("\n")
 
     if var_pca:
-        w(_csv_row("5. Varianza explicada (PCA)"))
+        w(_csv_line("5. Varianza explicada (PCA)"))
         w("\n")
         for i, v in enumerate(var_pca, start=1):
-            w(_csv_row(f"PC{i}", f"{float(v):.6f}"))
+            w(_csv_line(f"PC{i}", f"{float(v):.6f}"))
         w("\n")
 
     if loadings_pca is not None and not loadings_pca.empty:
-        w(_csv_row("6. Cargas PCA"))
+        w(_csv_line("6. Cargas PCA"))
         w("\n")
         loadings_pca.round(4).to_csv(buf, lineterminator="\n")
         w("\n")
 
     if loadings_efa is not None and not loadings_efa.empty:
-        w(_csv_row("7. Cargas AFE rotadas (Varimax)"))
+        w(_csv_line("7. Cargas AFE rotadas (Varimax)"))
         w("\n")
         loadings_efa.round(4).to_csv(buf, lineterminator="\n")
         w("\n")
 
     if eigenvalues:
-        w(_csv_row("8. Autovalores AFE"))
+        w(_csv_line("8. Autovalores AFE"))
         w("\n")
-        w(_csv_row("Autovalor", " | ".join(f"{v:.4f}" for v in eigenvalues[:12])))
+        w(_csv_line("Autovalor", " | ".join(f"{v:.4f}" for v in eigenvalues[:12])))
         w("\n")
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
@@ -637,61 +642,56 @@ def build_clustering_report_csv(
     buf = io.StringIO()
     w = buf.write
 
-    w(_csv_row("Encuesta Clara — Informe de clustering"))
+    w(_csv_line("Encuesta Clara — Informe de clustering"))
     w("\n")
-    w(_csv_row("Algoritmo", algorithm))
-    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
-    w(_csv_row("Filas usadas en la matriz", n_obs))
+    w(_csv_line("Algoritmo", algorithm))
+    w(_csv_line("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    w(_csv_line("Filas usadas en la matriz", n_obs))
     if status_note:
-        w(_csv_row("Estado", status_note))
+        w(_csv_line("Estado", status_note))
     if k is not None:
-        w(_csv_row("k (grupos K-means)", k))
+        w(_csv_line("k (grupos K-means)", k))
     if eps is not None:
-        w(_csv_row("eps (DBSCAN)", f"{eps:.4f}"))
+        w(_csv_line("eps (DBSCAN)", f"{eps:.4f}"))
     if min_samples is not None:
-        w(_csv_row("min_samples (DBSCAN)", min_samples))
+        w(_csv_line("min_samples (DBSCAN)", min_samples))
     if inertia is not None:
-        w(_csv_row("Inercia final (K-means)", f"{inertia:.4f}"))
+        w(_csv_line("Inercia final (K-means)", f"{inertia:.4f}"))
     if noise_rate is not None:
-        w(_csv_row("Tasa de ruido DBSCAN (-1)", f"{100.0 * noise_rate:.2f}%"))
+        w(_csv_line("Tasa de ruido DBSCAN (-1)", f"{100.0 * noise_rate:.2f}%"))
     w("\n")
 
-    w(_csv_row("1. Variables para perfiles"))
+    w(_csv_line("1. Variables para perfiles"))
     for lab in feature_labels:
-        w(_csv_row("", lab))
+        w(_csv_line(lab))
     w("\n")
 
     if encoding_notes:
-        w(_csv_row("2. Codificación aplicada"))
-        w("\n")
+        w(_csv_line("2. Codificación aplicada"))
         for note in encoding_notes[:12]:
-            w(_csv_row("", note))
+            w(_csv_line(note))
         w("\n")
 
     if cluster_counts is not None and not cluster_counts.empty:
-        w(_csv_row("3. Conteo por clúster"))
+        w(_csv_line("3. Conteo por clúster"))
         w("\n")
         cluster_counts.to_csv(buf, index=False, lineterminator="\n")
         w("\n")
 
     if centers is not None and not centers.empty:
-        w(_csv_row("4. Centroides (K-means, espacio de rasgos)"))
+        w(_csv_line("4. Centroides (K-means, espacio de rasgos)"))
         w("\n")
         centers.round(4).to_csv(buf, lineterminator="\n")
         w("\n")
 
     if reading_hints.strip():
-        w(_csv_row("5. Guía de lectura de clústeres"))
-        w("\n")
-        for line in reading_hints.strip().splitlines():
-            w(_csv_row("", line.strip()))
+        w(_csv_line("5. Guía de lectura de clústeres"))
+        w(_csv_line(reading_hints.strip()))
         w("\n")
 
     if interpretation.strip():
-        w(_csv_row("6. Interpretación orientativa"))
-        w("\n")
-        for line in interpretation.strip().splitlines():
-            w(_csv_row("", line.strip()))
+        w(_csv_line("6. Interpretación orientativa"))
+        w(_csv_line(interpretation.strip()))
         w("\n")
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
