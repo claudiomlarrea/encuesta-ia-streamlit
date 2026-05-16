@@ -536,6 +536,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         secondary_col: str | None = None
                         value_pick: list[str] = []
                         sec_label: str | None = None
+                        run_guided = False
 
                         if analysis_kind == "crosstab":
                             other_labels = [
@@ -543,17 +544,31 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             ]
                             if not other_labels:
                                 st.warning("No hay otra columna para cruzar.")
-                            else:
-                                sel2 = st.selectbox(
-                                    "Cruzar con",
-                                    other_labels,
-                                    key="guided_secondary_label",
+                                run_guided = st.form_submit_button(
+                                    "Ver resultados",
+                                    type="primary",
                                 )
-                                sec_choice = label_to_choice[sel2]
-                                secondary_col = sec_choice.column
-                                sec_label = sel2
-                                with st.expander("Enunciado de la variable de cruce"):
-                                    st.write(sec_choice.full_text or sec_choice.label)
+                            else:
+                                col_opt, col_btn = st.columns([5, 1])
+                                with col_opt:
+                                    sel2 = st.selectbox(
+                                        "Cruzar con",
+                                        other_labels,
+                                        key="guided_secondary_label",
+                                    )
+                                    sec_choice = label_to_choice[sel2]
+                                    secondary_col = sec_choice.column
+                                    sec_label = sel2
+                                    with st.expander("Enunciado de la variable de cruce"):
+                                        st.write(sec_choice.full_text or sec_choice.label)
+                                with col_btn:
+                                    st.markdown('<div class="guided-form-actions">', unsafe_allow_html=True)
+                                    run_guided = st.form_submit_button(
+                                        "Ver resultados",
+                                        type="primary",
+                                        use_container_width=True,
+                                    )
+                                    st.markdown("</div>", unsafe_allow_html=True)
 
                         elif analysis_kind == "count_values":
                             vals = (
@@ -565,22 +580,35 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             )
                             vals = vals[vals.astype(bool)]
                             uniq = vals.value_counts().head(30).index.astype(str).tolist()
-                            if not uniq:
-                                st.caption("No hay categorías para contar en esta columna.")
-                            else:
-                                value_pick = st.multiselect(
-                                    "Contar quiénes respondieron (podés elegir varias)",
-                                    uniq,
-                                    key="guided_value_pick",
+                            col_opt, col_btn = st.columns([5, 1])
+                            with col_opt:
+                                if not uniq:
+                                    st.caption("No hay categorías para contar en esta columna.")
+                                else:
+                                    value_pick = st.multiselect(
+                                        "Contar quiénes respondieron (podés elegir varias)",
+                                        uniq,
+                                        key="guided_value_pick",
+                                    )
+                            with col_btn:
+                                st.markdown('<motion disabled><div class="guided-form-actions">', unsafe_allow_html=True)
+                                run_guided = st.form_submit_button(
+                                    "Ver resultados",
+                                    type="primary",
+                                    use_container_width=True,
                                 )
-
-                        run_guided = st.form_submit_button(
-                            "Ver resultados",
-                            type="primary",
-                            use_container_width=False,
-                        )
+                                st.markdown("</div>", unsafe_allow_html=True)
+                        else:
+                            run_guided = st.form_submit_button(
+                                "Ver resultados",
+                                type="primary",
+                            )
 
                         if run_guided:
+                            if analysis_kind == "count_values":
+                                value_pick = list(
+                                    st.session_state.get("guided_value_pick", value_pick or [])
+                                )
                             spec = GuidedSpec(
                                 primary_column=choice.column,
                                 analysis=analysis_kind,

@@ -213,10 +213,21 @@ def inject_theme() -> None:
             margin-bottom: 1.25rem;
             padding-bottom: 0.35rem;
         }}
+        [data-testid="stForm"] [data-testid="stMultiSelect"] {{
+            margin-bottom: 0.35rem;
+        }}
+        .guided-form-actions {{
+            display: flex;
+            align-items: flex-end;
+            justify-content: flex-end;
+            min-height: 5.5rem;
+            padding-top: 0.5rem;
+        }}
         .guided-results-block {{
-            margin-top: 0.5rem;
-            padding-top: 0.25rem;
+            margin-top: 1.75rem;
+            padding-top: 0.75rem;
             clear: both;
+            border-top: 1px solid #C8C8C8;
         }}
         </style>
         """,
