@@ -3,6 +3,7 @@ Modo guiado: elegir pregunta del cuestionario, filtros y tipo de análisis sin l
 """
 from __future__ import annotations
 
+import io
 import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -14,12 +15,20 @@ from quant_advanced import (
     crosstab_chi_square_smart,
     descriptive_one_column,
     detect_survey_ordinals_and_question_blocks,
+    prepare_crosstab_for_display,
     questionnaire_parent_stem,
 )
 from quant_summaries import chi_square_explanatory, descriptive_explanatory
 from survey_intel import ColumnProfile, frequency_table, is_timestamp_column
 
 AnalysisKind = Literal["freq", "crosstab", "count_values", "open_text"]
+
+ANALYSIS_KIND_LABELS: dict[AnalysisKind, str] = {
+    "freq": "Frecuencias y porcentajes",
+    "crosstab": "Cruce con otra pregunta (χ²)",
+    "count_values": "Contar categorías elegidas",
+    "open_text": "Respuestas de texto (muestra)",
+}
 
 FILTER_SPECS: list[tuple[str, list[str]]] = [
     ("Unidad académica", ["unidad academica", "unidad académica", "cursando"]),
@@ -274,6 +283,87 @@ def cohort_filter_scope_markdown(
     if n_cohort is not None and n_total is not None:
         base += f" (**{n_cohort}** de **{n_total}** encuestados)."
     return base
+
+
+def _csv_cell(value: Any) -> str:
+    s = str(value).replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    if any(ch in s for ch in (",", '"', ";")):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def _csv_row(*cells: Any) -> str:
+    return ",".join(_csv_cell(c) for c in cells)
+
+
+def build_guided_report_csv(
+    *,
+    spec: GuidedSpec,
+    result: GuidedResult,
+    primary_label: str,
+    primary_full_text: str,
+    table: pd.DataFrame,
+    table_kind: str,
+    filter_cols: list[FilterColumn] | None = None,
+    secondary_label: str | None = None,
+    secondary_full_text: str | None = None,
+) -> bytes:
+    """
+    CSV con encabezado legible (preguntas, filtros, tipo de análisis) y luego la tabla.
+    """
+    buf = io.StringIO()
+    w = buf.write
+
+    w(_csv_row("Encuesta Clara — Informe de consulta guiada"))
+    w("\n")
+    w(_csv_row("1. Pregunta analizada", primary_full_text or short_choice_label(primary_label)))
+    w("\n")
+    w(_csv_row("Tipo de análisis", ANALYSIS_KIND_LABELS.get(spec.analysis, spec.analysis)))
+    w("\n")
+
+    if spec.analysis == "crosstab":
+        sec_txt = secondary_full_text or (
+            short_choice_label(secondary_label) if secondary_label else ""
+        )
+        w(_csv_row("2. Pregunta de cruce (columnas de la tabla)", sec_txt or "—"))
+        w("\n")
+    elif spec.analysis == "count_values" and spec.value_pick:
+        w(_csv_row("2. Categorías contadas", ", ".join(spec.value_pick[:20])))
+        if len(spec.value_pick) > 20:
+            w(_csv_row("", f"(+{len(spec.value_pick) - 20} más)"))
+        w("\n")
+
+    w(_csv_row("3. Filtros de muestra aplicados"))
+    filt_lines = (
+        cohort_filters_display_lines(filter_cols or [], spec.cohort_filters)
+        if spec.cohort_filters
+        else []
+    )
+    if filt_lines:
+        for fl in filt_lines:
+            w(_csv_row("", fl))
+    else:
+        w(_csv_row("", "Toda la encuesta (sin filtros de cohorte)"))
+    w("\n")
+    w(
+        _csv_row(
+            "Casos en la muestra",
+            f"{result.n_cohort} de {result.n_total} encuestados",
+        )
+    )
+    w("\n\n")
+
+    if table_kind == "cruce":
+        row_hdr = f"Opción · {short_choice_label(primary_label, max_len=120)}"
+        show = prepare_crosstab_for_display(table, index_label=row_hdr)
+    else:
+        show = table.copy()
+
+    w(_csv_row("4. Tabla de resultados"))
+    w("\n")
+    show.to_csv(buf, index=False, lineterminator="\n")
+
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
 def apply_cohort_filters(df: pd.DataFrame, filters: dict[str, list[str]]) -> pd.DataFrame:

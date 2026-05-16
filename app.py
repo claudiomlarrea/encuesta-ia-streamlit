@@ -90,6 +90,7 @@ from survey_guided import (
     analysis_options_for_column,
     apply_cohort_filters,
     build_column_choices,
+    build_guided_report_csv,
     cohort_filter_scope_markdown,
     crosstab_table_caption,
     discover_filter_columns,
@@ -721,15 +722,25 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
                             if g_res.tables:
                                 first_key = next(iter(g_res.tables))
-                                dl_tbl = g_res.tables[first_key]
-                                if first_key == "cruce":
-                                    dl_tbl = prepare_crosstab_for_display(
-                                        g_res.tables[first_key],
-                                        index_label="Opción (pregunta principal)",
-                                    )
+                                sec_lbl_dl = bundle.get("sec_label") or sec_label
+                                sec_full_dl = ""
+                                if sec_lbl_dl and sec_lbl_dl in label_to_choice:
+                                    sc = label_to_choice[sec_lbl_dl]
+                                    sec_full_dl = sc.full_text or sc.label
+                                report_csv = build_guided_report_csv(
+                                    spec=spec,
+                                    result=g_res,
+                                    primary_label=bundle.get("sel_label", sel_label),
+                                    primary_full_text=choice.full_text or choice.label,
+                                    table=g_res.tables[first_key],
+                                    table_kind=first_key,
+                                    filter_cols=result_filter_cols,
+                                    secondary_label=sec_lbl_dl,
+                                    secondary_full_text=sec_full_dl or None,
+                                )
                                 st.download_button(
-                                    "Descargar tabla principal (CSV)",
-                                    dl_tbl.to_csv(index=False).encode("utf-8"),
+                                    "Descargar informe (CSV)",
+                                    report_csv,
                                     file_name="consulta_guiada.csv",
                                     mime="text/csv",
                                     key="guided_download_csv",
