@@ -95,6 +95,7 @@ from survey_guided import (
     build_significance_report_csv,
     build_cronbach_report_csv,
     build_pca_efa_report_csv,
+    build_clustering_report_csv,
     cohort_filter_scope_markdown,
     crosstab_table_caption,
     discover_filter_columns,
@@ -1647,16 +1648,34 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         )
                     if len(feat_c) >= 1:
                         Xf, expl, _ = prepare_feature_matrix(df_work, feat_c, inverted_cols=invert_set)
-                        st.caption("Codificación: " + " | ".join(f"{k[:40]}: {v}" for k, v in list(expl.items())[:6]))
+                        enc_notes = [f"{k[:60]}: {v}" for k, v in list(expl.items())[:12]]
+                        st.caption("Codificación: " + " | ".join(enc_notes[:6]))
+                        clust_status = "No ejecutado"
+                        clust_vc: pd.DataFrame | None = None
+                        clust_centers: pd.DataFrame | None = None
+                        clust_inertia: float | None = None
+                        clust_noise: float | None = None
+                        clust_k: int | None = None
+                        clust_eps: float | None = None
+                        clust_ms: int | None = None
+                        clust_hints = ""
+                        clust_interp = ""
+                        n_clust_obs = 0
+
                         if Xf.empty:
                             st.error("No se pudo construir la matriz de rasgos (revisá cardinalidades).")
+                            clust_status = "Matriz vacía"
                         else:
                             Xf = Xf.astype(float).fillna(Xf.median(numeric_only=True))
+                            n_clust_obs = len(Xf)
                             if mode == "K-means":
                                 k = st.slider("k (grupos)", 2, 9, 3)
+                                clust_k = k
                                 lbl, centers, inertia, _ = kmeans_profiles(Xf, k=k)
+                                clust_inertia = inertia
+                                clust_centers = centers.round(2)
                                 st.metric("Inercia final", f"{inertia:,.1f}")
-                                st.dataframe(centers.round(2), use_container_width=True)
+                                st.dataframe(clust_centers, use_container_width=True)
                                 vc = add_total_count_row(
                                     lbl.value_counts()
                                     .sort_index()
@@ -1665,65 +1684,95 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     label_col="cluster",
                                     value_col="n",
                                 )
+                                clust_vc = vc
                                 st.dataframe(vc, hide_index=True)
+                                clust_hints = kmeans_cluster_reading_hints(
+                                    centers,
+                                    vc,
+                                    df_source=df_work,
+                                    feat_columns=feat_c,
+                                    feat_display_labels=[_fmt_analysis_col(c) for c in feat_c],
+                                    inverted_cols=invert_set,
+                                )
                                 with st.expander(
                                     "**Clúster 0 vs 1 vs 2:** qué significan y cómo nombrarlos",
                                     expanded=True,
                                 ):
-                                    st.markdown(
-                                        kmeans_cluster_reading_hints(
-                                            centers,
-                                            vc,
-                                            df_source=df_work,
-                                            feat_columns=feat_c,
-                                            feat_display_labels=[_fmt_analysis_col(c) for c in feat_c],
-                                            inverted_cols=invert_set,
-                                        )
-                                    )
-                                _bloque_interpretacion_cuantitativa(
-                                    clustering_explanatory(
-                                        "K-means",
-                                        k=k,
-                                        inertia=inertia,
-                                        vc=vc,
-                                        n_feats=len(feat_c),
-                                        n_obs=len(Xf),
-                                    )
+                                    st.markdown(clust_hints)
+                                clust_interp = clustering_explanatory(
+                                    "K-means",
+                                    k=k,
+                                    inertia=inertia,
+                                    vc=vc,
+                                    n_feats=len(feat_c),
+                                    n_obs=len(Xf),
                                 )
+                                _bloque_interpretacion_cuantitativa(clust_interp)
+                                clust_status = "K-means ejecutado"
                             elif mode == "DBSCAN":
                                 eps = st.slider("eps", 0.3, 2.5, 0.85, step=0.05)
                                 ms = st.slider("min_samples", 3, 20, 7)
+                                clust_eps = eps
+                                clust_ms = ms
                                 lbl, noise_rate, _ = dbscan_profiles(Xf, eps, ms)
+                                clust_noise = noise_rate
                                 st.metric("Observaciones ruido (-1)", f"{noise_rate*100:.1f}%")
-                                st.dataframe(
-                                    add_total_count_row(
-                                        lbl.value_counts().rename_axis("cluster").reset_index(name="n"),
-                                        label_col="cluster",
-                                        value_col="n",
-                                    ),
-                                    hide_index=True,
+                                clust_vc = add_total_count_row(
+                                    lbl.value_counts().rename_axis("cluster").reset_index(name="n"),
+                                    label_col="cluster",
+                                    value_col="n",
                                 )
-                                _bloque_interpretacion_cuantitativa(
-                                    clustering_explanatory(
-                                        "DBSCAN",
-                                        noise_rate=noise_rate,
-                                        n_feats=len(feat_c),
-                                        n_obs=len(Xf),
-                                    )
+                                st.dataframe(clust_vc, hide_index=True)
+                                clust_interp = clustering_explanatory(
+                                    "DBSCAN",
+                                    noise_rate=noise_rate,
+                                    n_feats=len(feat_c),
+                                    n_obs=len(Xf),
                                 )
+                                _bloque_interpretacion_cuantitativa(clust_interp)
+                                clust_status = "DBSCAN ejecutado"
                             else:
                                 st.warning("Jerárquico: sólo muestra hasta 120 respondentes seleccionados al azar (legibilidad).")
                                 samp = Xf.sample(min(120, len(Xf)), random_state=7)
+                                n_clust_obs = len(samp)
                                 fig = hierarchical_linkage_plot(samp)
                                 st.pyplot(fig)
                                 plt.close(fig)
-                                _bloque_interpretacion_cuantitativa(
-                                    clustering_explanatory(
-                                        "Jerárquico (dendrograma)",
-                                        n_feats=len(feat_c),
-                                        n_obs=len(samp),
-                                    )
+                                clust_interp = clustering_explanatory(
+                                    "Jerárquico (dendrograma)",
+                                    n_feats=len(feat_c),
+                                    n_obs=len(samp),
                                 )
+                                _bloque_interpretacion_cuantitativa(clust_interp)
+                                clust_status = "Dendrograma (muestra aleatoria)"
+
+                        clust_csv = build_clustering_report_csv(
+                            algorithm=mode,
+                            feature_labels=[_fmt_analysis_col(c) for c in feat_c],
+                            n_work=len(df_work),
+                            n_dataset=len(df),
+                            n_obs=n_clust_obs,
+                            encoding_notes=enc_notes,
+                            k=clust_k,
+                            eps=clust_eps,
+                            min_samples=clust_ms,
+                            inertia=clust_inertia,
+                            noise_rate=clust_noise,
+                            cluster_counts=clust_vc,
+                            centers=clust_centers,
+                            reading_hints=clust_hints,
+                            interpretation=clust_interp,
+                            status_note=clust_status,
+                        )
+                        st.download_button(
+                            "Descargar informe (CSV)",
+                            clust_csv,
+                            file_name="clustering.csv",
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True,
+                            key="clustering_download_csv",
+                        )
                     else:
                         st.info("Elegí al menos **una** variable para segmentar.")
         

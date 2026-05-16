@@ -614,6 +614,89 @@ def build_pca_efa_report_csv(
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
+def build_clustering_report_csv(
+    *,
+    algorithm: str,
+    feature_labels: list[str],
+    n_work: int,
+    n_dataset: int,
+    n_obs: int,
+    encoding_notes: list[str] | None = None,
+    k: int | None = None,
+    eps: float | None = None,
+    min_samples: int | None = None,
+    inertia: float | None = None,
+    noise_rate: float | None = None,
+    cluster_counts: pd.DataFrame | None = None,
+    centers: pd.DataFrame | None = None,
+    reading_hints: str = "",
+    interpretation: str = "",
+    status_note: str = "",
+) -> bytes:
+    """CSV: variables, parámetros, conteos por clúster y centroides (K-means)."""
+    buf = io.StringIO()
+    w = buf.write
+
+    w(_csv_row("Encuesta Clara — Informe de clustering"))
+    w("\n")
+    w(_csv_row("Algoritmo", algorithm))
+    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    w(_csv_row("Filas usadas en la matriz", n_obs))
+    if status_note:
+        w(_csv_row("Estado", status_note))
+    if k is not None:
+        w(_csv_row("k (grupos K-means)", k))
+    if eps is not None:
+        w(_csv_row("eps (DBSCAN)", f"{eps:.4f}"))
+    if min_samples is not None:
+        w(_csv_row("min_samples (DBSCAN)", min_samples))
+    if inertia is not None:
+        w(_csv_row("Inercia final (K-means)", f"{inertia:.4f}"))
+    if noise_rate is not None:
+        w(_csv_row("Tasa de ruido DBSCAN (-1)", f"{100.0 * noise_rate:.2f}%"))
+    w("\n")
+
+    w(_csv_row("1. Variables para perfiles"))
+    for lab in feature_labels:
+        w(_csv_row("", lab))
+    w("\n")
+
+    if encoding_notes:
+        w(_csv_row("2. Codificación aplicada"))
+        w("\n")
+        for note in encoding_notes[:12]:
+            w(_csv_row("", note))
+        w("\n")
+
+    if cluster_counts is not None and not cluster_counts.empty:
+        w(_csv_row("3. Conteo por clúster"))
+        w("\n")
+        cluster_counts.to_csv(buf, index=False, lineterminator="\n")
+        w("\n")
+
+    if centers is not None and not centers.empty:
+        w(_csv_row("4. Centroides (K-means, espacio de rasgos)"))
+        w("\n")
+        centers.round(4).to_csv(buf, lineterminator="\n")
+        w("\n")
+
+    if reading_hints.strip():
+        w(_csv_row("5. Guía de lectura de clústeres"))
+        w("\n")
+        for line in reading_hints.strip().splitlines():
+            w(_csv_row("", line.strip()))
+        w("\n")
+
+    if interpretation.strip():
+        w(_csv_row("6. Interpretación orientativa"))
+        w("\n")
+        for line in interpretation.strip().splitlines():
+            w(_csv_row("", line.strip()))
+        w("\n")
+
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
 def _checkbox_key(session_key: str, column: str) -> str:
     digest = hashlib.md5(column.encode("utf-8")).hexdigest()[:16]
     return f"{session_key}__chk__{digest}"

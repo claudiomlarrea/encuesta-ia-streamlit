@@ -763,7 +763,13 @@ def kmeans_cluster_reading_hints(
     idx_centers = sorted(int(i) for i in centers.index.tolist())
     have_vc = set()
     if vc is not None and not vc.empty and "cluster" in vc.columns:
-        have_vc = {int(x) for x in vc["cluster"].tolist()}
+        for x in vc["cluster"].tolist():
+            if str(x).strip().upper() == "TOTAL":
+                continue
+            try:
+                have_vc.add(int(x))
+            except (TypeError, ValueError):
+                pass
     clusters_order = sorted(set(idx_centers) | have_vc)
     uniq_rows = centers.drop_duplicates()
     dup_note = ""
@@ -887,20 +893,27 @@ def clustering_explanatory(
         rasgo_txt = "rasgo codificado" if int(n_feats) == 1 else "rasgos codificados"
         vc_txt = ""
         if vc is not None and not vc.empty and "n" in vc.columns:
-            sizes = vc["n"].astype(int).tolist()
-            imbalance = max(sizes) / max(min(sizes), 1)
-            vc_txt = f" Tamaños de cluster **{sizes}**. "
-            vc_txt += f"Índice bruto mayor/menor = **{imbalance:.1f}x** (**&lt;~3** suele leerse equilibrado en exploración rápida)."
+            vc_km = vc
+            if "cluster" in vc.columns:
+                vc_km = vc[vc["cluster"].astype(str).str.upper() != "TOTAL"]
+            sizes = pd.to_numeric(vc_km["n"], errors="coerce").fillna(0).astype(int).tolist()
+            if sizes:
+                imbalance = max(sizes) / max(min(sizes), 1)
+                vc_txt = f" Tamaños de cluster **{sizes}**. "
+                vc_txt += f"Índice bruto mayor/menor = **{imbalance:.1f}x** (**&lt;~3** suele leerse equilibrado en exploración rápida)."
         inert_txt = f" **Inercia** final **{inertia:,.0f}** (sólo comparable si variás k sobre la misma matriz)." if inertia else ""
         qual_km = ""
         if vc is not None and not vc.empty and "n" in vc.columns:
-            nt = max(int(pd.to_numeric(vc["n"], errors="coerce").fillna(0).sum()), 1)
+            vc_km = vc
+            if "cluster" in vc.columns:
+                vc_km = vc[vc["cluster"].astype(str).str.upper() != "TOTAL"]
+            nt = max(int(pd.to_numeric(vc_km["n"], errors="coerce").fillna(0).sum()), 1)
             qbits = [
                 "\n### Lectura cualitativa muestral (asignación a cada clúster en esta corrida).\n\n"
                 "Conteos muestrales de cuántos encuestados quedaron en cada etiqueta automática después de ejecutar "
                 "**K-means**. Los porcentajes son **solo respecto del total válido tras la segmentación vista**:\n\n"
             ]
-            for _, rr in vc.iterrows():
+            for _, rr in vc_km.iterrows():
                 cid = rr["cluster"] if "cluster" in rr.index else rr.iloc[0]
                 nn = int(rr["n"])
                 qbits.append(
