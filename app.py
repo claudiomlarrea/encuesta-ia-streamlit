@@ -158,7 +158,7 @@ def _bloque_lectura_academica_predictivos(texto_md: str) -> None:
 
 MAIN_TABS_ORDER = [
     "Resumen de ítems",
-    "Pregunta a la encuesta",
+    "Análisis automático",
     "Análisis cuantitativo",
     "Análisis cualitativo",
     "Guía metodológica",
@@ -452,6 +452,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             return x
         return col_labels.get(x, x)
 
+    _TAB_RENAME = {"Pregunta a la encuesta": "Análisis automático"}
+    main_sections = [_TAB_RENAME.get(t, t) for t in main_sections]
     main_ordered = [t for t in MAIN_TABS_ORDER if t in main_sections]
     if not main_ordered:
         st.warning(
@@ -462,8 +464,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
     T_main = dict(zip(main_ordered, st.tabs(main_ordered)))
 
-    if "Pregunta a la encuesta" in T_main:
-        with T_main["Pregunta a la encuesta"]:
+    if "Análisis automático" in T_main:
+        with T_main["Análisis automático"]:
             st.subheader("Consultas sobre la encuesta")
             st.caption(
                 "Elegí la pregunta del formulario, opcionalmente filtrá la muestra y obtené tablas "
