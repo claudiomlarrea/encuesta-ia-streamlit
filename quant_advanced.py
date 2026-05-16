@@ -559,6 +559,57 @@ def descriptive_one_column(series: pd.Series, inverted: bool = False) -> dict[st
     }
 
 
+def is_multiselect_column(series: pd.Series, min_comma_rate: float = 0.28) -> bool:
+    """Respuestas tipo «A, B, C» (Google Forms selección múltiple)."""
+    s = series.dropna().astype(str).str.strip()
+    s = s[s.astype(bool)]
+    if len(s) < 8:
+        return False
+    return float(s.str.contains(",").mean()) >= min_comma_rate
+
+
+def crosstab_multiselect_aggregated(
+    df: pd.DataFrame,
+    group_col: str,
+    multiselect_col: str,
+    *,
+    top_options: int = 18,
+) -> pd.DataFrame:
+    """
+    Cruce con **conteo por ítem** (cada opción de la multiselección es una columna; valores = cuántos
+    encuestados de cada fila marcaron esa opción). Incluye totales de fila y columna.
+    """
+    sub = df[[group_col, multiselect_col]].dropna()
+    sub = sub.copy()
+    sub[group_col] = sub[group_col].astype(str).str.strip()
+
+    long_rows: list[dict[str, str]] = []
+    for _, r in sub.iterrows():
+        gval = str(r[group_col])
+        for part in str(r[multiselect_col]).split(","):
+            opt = part.strip()
+            if opt:
+                long_rows.append({group_col: gval, "_opción": opt})
+
+    if not long_rows:
+        return pd.DataFrame()
+
+    long = pd.DataFrame(long_rows)
+    tab = pd.crosstab(long[group_col], long["_opción"])
+
+    if tab.shape[1] > top_options:
+        ordered = tab.sum(axis=0).sort_values(ascending=False)
+        keep = list(ordered.head(top_options).index)
+        rest = tab.drop(columns=keep, errors="ignore")
+        tab = tab[keep].copy()
+        if rest.shape[1] > 0:
+            tab["Otros (resto de ítems)"] = rest.sum(axis=1)
+
+    tab["Total fila"] = tab.sum(axis=1)
+    tab.loc["Total columna"] = tab.sum(axis=0)
+    return tab
+
+
 def crosstab_chi_square(df: pd.DataFrame, row: str, col: str) -> dict[str, Any]:
     sub = df[[row, col]].dropna()
     tab = pd.crosstab(sub[row], sub[col])
@@ -575,7 +626,64 @@ def crosstab_chi_square(df: pd.DataFrame, row: str, col: str) -> dict[str, Any]:
         "p_valor": float(p) if p == p else np.nan,
         "cramers_v": float(v) if v == v else np.nan,
         "n": len(sub),
+        "multiselect_aggregated": False,
     }
+
+
+def crosstab_chi_square_smart(
+    df: pd.DataFrame,
+    row: str,
+    col: str,
+    *,
+    top_multiselect_options: int = 18,
+) -> dict[str, Any]:
+    """
+    χ² y tabla de cruce. Si una columna es selección múltiple (texto con comas), agrega por ítem
+    y muestra totales por fila/columna en lugar de cada combinación única de respuestas.
+    """
+    row_ms = is_multiselect_column(df[row])
+    col_ms = is_multiselect_column(df[col])
+
+    if row_ms and col_ms:
+        base = crosstab_chi_square(df, row, col)
+        base["multiselect_aggregated"] = False
+        base["multiselect_note"] = (
+            "Ambas variables parecen selección múltiple; se muestra la tabla de combinaciones literales. "
+            "Para lectura más clara, cruzá una sola variable multiselección con una categórica simple."
+        )
+        return base
+
+    if row_ms or col_ms:
+        if col_ms:
+            group_col, ms_col = row, col
+        else:
+            group_col, ms_col = col, row
+        sub = df[[row, col]].dropna()
+        tab = crosstab_multiselect_aggregated(
+            df, group_col, ms_col, top_options=top_multiselect_options
+        )
+        core = tab.iloc[:-1, :-1] if "Total columna" in tab.index and "Total fila" in tab.columns else tab
+        if core.shape[0] >= 2 and core.shape[1] >= 2:
+            chi2, p, dof, _expected = scipy_stats.chi2_contingency(core.values)
+            v = cramers_v_from_table(core.values)
+        else:
+            chi2, p, dof, v = np.nan, np.nan, 0, np.nan
+        return {
+            "tabla": tab,
+            "chi2": float(chi2) if chi2 == chi2 else np.nan,
+            "gl": int(dof),
+            "p_valor": float(p) if p == p else np.nan,
+            "cramers_v": float(v) if v == v else np.nan,
+            "n": len(sub),
+            "multiselect_aggregated": True,
+            "multiselect_note": (
+                "La columna de herramientas (u otra multiselección) se **desagregó por ítem**: "
+                "cada celda es la **cantidad de personas** de esa fila que marcaron esa opción. "
+                "«Total fila» y «Total columna» son sumas; una persona puede contar en varias columnas."
+            ),
+        }
+
+    return crosstab_chi_square(df, row, col)
 
 
 def cramers_v_from_table(table: np.ndarray) -> float:

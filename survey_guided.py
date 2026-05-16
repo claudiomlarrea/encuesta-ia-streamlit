@@ -9,7 +9,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from quant_advanced import (
-    crosstab_chi_square,
+    crosstab_chi_square_smart,
     descriptive_one_column,
     detect_survey_ordinals_and_question_blocks,
     ellipsis_text,
@@ -279,7 +279,7 @@ def run_guided_analysis(
                 metrics=metrics,
                 error="Elegí otra pregunta para el cruce.",
             )
-        res = crosstab_chi_square(df_cohort, col, col2)
+        res = crosstab_chi_square_smart(df_cohort, col, col2)
         tables["cruce"] = res["tabla"]
         metrics["chi2"] = res
         return GuidedResult(
@@ -359,8 +359,11 @@ def interpret_guided(
     if result.analysis == "crosstab" and "chi2" in result.metrics:
         res = result.metrics["chi2"]
         sec = secondary_label or spec.secondary_column or ""
+        ms_note = ""
+        if res.get("multiselect_note"):
+            ms_note = f"\n\n{res['multiselect_note']}\n"
         return (
-            f"### Cruce — «{primary_label}» × «{sec}»\n{filt_txt}\n\n"
+            f"### Cruce — «{primary_label}» × «{sec}»\n{filt_txt}{ms_note}\n"
             + chi_square_explanatory(
                 chi2=res["chi2"],
                 gl=res["gl"],

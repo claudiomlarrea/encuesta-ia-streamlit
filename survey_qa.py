@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from quant_advanced import (
-    crosstab_chi_square,
+    crosstab_chi_square_smart,
     descriptive_one_column,
     detect_best_ordinal,
 )
@@ -818,7 +818,7 @@ def run_plan(
 
     if plan.intent == "crosstab" and plan.primary_column and plan.secondary_column:
         r, c = plan.primary_column, plan.secondary_column
-        res = crosstab_chi_square(df, r, c)
+        res = crosstab_chi_square_smart(df, r, c)
         tables["cruce"] = res["tabla"]
         metrics["chi2"] = res
         return QueryResult(

@@ -23,6 +23,7 @@ from quant_advanced import (
     compare_numeric_across_groups,
     cronbach_encoding_diagnostics,
     crosstab_chi_square,
+    crosstab_chi_square_smart,
     cronbach_alpha,
     dbscan_profiles,
     detect_survey_ordinals_and_question_blocks,
@@ -784,7 +785,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     if rcol == ccol:
                         st.warning("Elegí dos variables distintas.")
                     else:
-                        out = crosstab_chi_square(df_work, rcol, ccol)
+                        out = crosstab_chi_square_smart(df_work, rcol, ccol)
+                        if out.get("multiselect_note"):
+                            st.info(out["multiselect_note"])
                         st.dataframe(out["tabla"], use_container_width=True)
                         st.write(
                             f"χ² = {out['chi2']:.3f}, gl = {out['gl']}, p = {out['p_valor']:.4f}, "
