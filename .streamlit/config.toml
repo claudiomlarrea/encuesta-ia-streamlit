@@ -1,12 +1,12 @@
-# Encuesta Clara — tema claro, cálido y legible
+# Encuesta Clara — colores institucionales UCCuyo (manual de marca)
 # https://docs.streamlit.io/develop/api-reference/configuration/config.toml
 
 [theme]
 base = "light"
-primaryColor = "#0284C7"
-backgroundColor = "#FDF8F3"
+primaryColor = "#044A30"
+backgroundColor = "#FAFCFA"
 secondaryBackgroundColor = "#FFFFFF"
-textColor = "#1E3A5F"
+textColor = "#1A2E28"
 font = "sans serif"
 
 [client]

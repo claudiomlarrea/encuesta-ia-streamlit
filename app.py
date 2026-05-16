@@ -93,7 +93,13 @@ from survey_guided import (
     GuidedSpec,
 )
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
-from ui_theme import apply_plotly_style, configure_matplotlib, inject_theme, render_brand_header
+from ui_theme import (
+    apply_plotly_style,
+    configure_matplotlib,
+    inject_theme,
+    render_brand_header,
+    render_institutional_header,
+)
 
 APP_NAME = "Encuesta Clara"
 APP_TAGLINE = (
@@ -211,6 +217,7 @@ def main() -> None:
         st.session_state.loaded_df = None
         st.session_state.loaded_name = None
 
+    render_institutional_header()
     render_brand_header(APP_NAME, APP_TAGLINE)
 
     with st.sidebar:
