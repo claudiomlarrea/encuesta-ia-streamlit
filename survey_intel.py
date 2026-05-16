@@ -199,6 +199,18 @@ class ColumnProfile:
     max_len: int
 
 
+def likert_frequency_column_names(profiles: list[ColumnProfile]) -> list[str]:
+    """Columnas aptas para Cronbach / PCA: escalas Likert o de frecuencia detectadas."""
+    out: list[str] = []
+    for p in profiles:
+        if p.kind != "estructurada" or p.n_non_null <= 0:
+            continue
+        st = (p.subtype or "").lower()
+        if "likert" in st or "frecuencia" in st:
+            out.append(p.name)
+    return out
+
+
 def is_timestamp_column(name: str) -> bool:
     n = name.lower().strip()
     return any(h in n for h in TIMESTAMP_HINTS)

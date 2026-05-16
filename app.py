@@ -81,6 +81,7 @@ from survey_intel import (
     explode_multiselect,
     frequency_table,
     is_timestamp_column,
+    likert_frequency_column_names,
     kwic_snippets,
     lexicon_sentiment_es,
     ngram_top_table,
@@ -92,6 +93,7 @@ from survey_guided import (
     build_column_choices,
     build_guided_report_csv,
     build_significance_report_csv,
+    build_cronbach_report_csv,
     cohort_filter_scope_markdown,
     crosstab_table_caption,
     discover_filter_columns,
@@ -184,6 +186,8 @@ _UI_WIDGET_KEYS = (
     "guided_value_pick",
     "guided_run_results",
     "sig_test_download_csv",
+    "cronbach_items",
+    "cronbach_download_csv",
     "desc_pick",
     "desc_multi",
     "chi_row",
@@ -1162,17 +1166,32 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if "4. Alfa Cronbach" in Q:
                 with Q["4. Alfa Cronbach"]:
                     st.markdown("#### Consistencia interna (Alfa de Cronbach)")
+                    cronbach_opts = likert_frequency_column_names(structured_w)
+                    if not cronbach_opts:
+                        cronbach_opts = [p.name for p in structured_w]
+                    st.caption(
+                        "Solo se listan ítems detectados como **Likert** o **frecuencia**. "
+                        "No uses género, edad ni categorías cerradas sueltas: el α no aplica y rompe la codificación."
+                    )
                     items_c = st.multiselect(
                         "Ítems Likert / frecuencia (mínimo 2 columnas)",
-                        options=all_analysis_cols,
+                        options=cronbach_opts,
                         default=[],
                         format_func=_fmt_analysis_col,
+                        key=_widget_key("cronbach_items"),
+                        placeholder="Escribí para buscar (p. ej. «uso», «IA», «frecuencia»)…",
+                        help="Elegí ítems del **mismo bloque** de escala. Si el menú dice «No results», borrá el texto del buscador.",
                     )
                     if len(items_c) >= 2:
                         diag_tbl, diag_sum, enc_mat_cron = cronbach_encoding_diagnostics(
                             df_work, items_c, inverted_cols=invert_set
                         )
                         mat = enc_mat_cron.dropna(how="any")
+                        rep_cron: pd.DataFrame | None = None
+                        warns_cron: list[str] = []
+                        alpha_val: float | None = None
+                        mat_desc: pd.DataFrame | None = None
+
                         with st.expander(
                             "Diagnóstico: codificación y superposición (antes del list‑wise)",
                             expanded=len(mat) < 20,
@@ -1214,23 +1233,50 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             st.dataframe(rep_cron, use_container_width=True, hide_index=True)
                             for w in warns_cron:
                                 st.info(w)
-                            alpha = cronbach_alpha(mat)
-                            if np.isnan(alpha):
+                            alpha_val = cronbach_alpha(mat)
+                            if np.isnan(alpha_val):
                                 st.warning(
                                     "α no es calculable con esta matriz (pocas filas completas, varianza total nula o ítems casi constantes tras codificar)."
                                 )
-                            st.metric(
-                                "Alfa de Cronbach",
-                                f"{alpha:.3f}",
-                                help="Con mezclas 4 vs 5 categorías interpretá con cautela si no pertenecen al mismo bloque teórico.",
-                            )
+                            else:
+                                st.metric(
+                                    "Alfa de Cronbach",
+                                    f"{alpha_val:.3f}",
+                                    help="Con mezclas 4 vs 5 categorías interpretá con cautela si no pertenecen al mismo bloque teórico.",
+                                )
                             st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
-                            st.dataframe(mat.describe().T, use_container_width=True)
+                            mat_desc = mat.describe().T
+                            st.dataframe(mat_desc, use_container_width=True)
                             _bloque_interpretacion_cuantitativa(
-                                cronbach_explanatory(alpha, len(mat), mat.shape[1], warns_cron, mat=mat)
+                                cronbach_explanatory(
+                                    alpha_val, len(mat), mat.shape[1], warns_cron, mat=mat
+                                )
                             )
+
+                        cron_csv = build_cronbach_report_csv(
+                            item_labels=[_fmt_analysis_col(c) for c in items_c],
+                            n_work=len(df_work),
+                            n_dataset=len(df),
+                            diag_sum=diag_sum,
+                            diag_tbl=diag_tbl,
+                            alpha=alpha_val if mat.shape[0] >= 20 else None,
+                            n_cases=len(mat),
+                            n_items=mat.shape[1],
+                            rep_cron=rep_cron,
+                            mat_describe=mat_desc,
+                            warnings=warns_cron,
+                        )
+                        st.download_button(
+                            "Descargar informe (CSV)",
+                            cron_csv,
+                            file_name="alfa_cronbach.csv",
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True,
+                            key="cronbach_download_csv",
+                        )
                     else:
-                        st.info("Seleccioná al menos dos ítems de la misma escala.")
+                        st.info("Seleccioná al menos dos ítems Likert/frecuencia del mismo bloque.")
         
             # --- PCA / AFE ---
             if "5. PCA / AFE" in Q:

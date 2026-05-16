@@ -243,6 +243,12 @@ def inject_theme() -> None:
         [data-testid="stForm"] [data-testid="stMultiSelect"] {{
             margin-bottom: 0.35rem;
         }}
+        [data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+            min-height: 2.75rem;
+        }}
+        [data-testid="stMultiSelect"] [data-baseweb="popover"] {{
+            z-index: 100002 !important;
+        }}
         .guided-form-actions {{
             display: flex;
             align-items: flex-end;

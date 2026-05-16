@@ -465,6 +465,66 @@ def build_significance_report_csv(
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
+def build_cronbach_report_csv(
+    *,
+    item_labels: list[str],
+    n_work: int,
+    n_dataset: int,
+    diag_sum: pd.DataFrame,
+    diag_tbl: pd.DataFrame,
+    alpha: float | None = None,
+    n_cases: int = 0,
+    n_items: int = 0,
+    rep_cron: pd.DataFrame | None = None,
+    mat_describe: pd.DataFrame | None = None,
+    warnings: list[str] | None = None,
+) -> bytes:
+    """CSV: ítems elegidos, diagnóstico de codificación, α y tablas auxiliares."""
+    buf = io.StringIO()
+    w = buf.write
+
+    w(_csv_row("Encuesta Clara — Informe Alfa de Cronbach"))
+    w("\n")
+    w(_csv_row("1. Ítems incluidos en el análisis"))
+    for lab in item_labels:
+        w(_csv_row("", lab))
+    w("\n")
+    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    if alpha is not None and alpha == alpha:
+        w(_csv_row("Alfa de Cronbach", f"{alpha:.4f}"))
+        w(_csv_row("Filas list‑wise (todas las escalas codificadas)", n_cases))
+        w(_csv_row("Cantidad de ítems", n_items))
+    else:
+        w(_csv_row("Alfa de Cronbach", "No calculable (pocos casos completos o varianza nula)"))
+    if warnings:
+        w(_csv_row("Advertencias", " | ".join(warnings[:6])))
+    w("\n")
+
+    w(_csv_row("2. Resumen de superposición (list‑wise)"))
+    w("\n")
+    diag_sum.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    w(_csv_row("3. Diagnóstico por ítem (codificación ordinal)"))
+    w("\n")
+    diag_tbl.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    if rep_cron is not None and not rep_cron.empty:
+        w(_csv_row("4. Escala efectiva por ítem"))
+        w("\n")
+        rep_cron.to_csv(buf, index=False, lineterminator="\n")
+        w("\n")
+
+    if mat_describe is not None and not mat_describe.empty:
+        w(_csv_row("5. Estadísticos por ítem (escala codificada, casos completos)"))
+        w("\n")
+        mat_describe.to_csv(buf, lineterminator="\n")
+        w("\n")
+
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
 def apply_cohort_filters(df: pd.DataFrame, filters: dict[str, list[str]]) -> pd.DataFrame:
     out = df
     for col, values in filters.items():
