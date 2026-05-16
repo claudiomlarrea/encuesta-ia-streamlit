@@ -4,6 +4,7 @@ Modo guiado: elegir pregunta del cuestionario, filtros y tipo de análisis sin l
 from __future__ import annotations
 
 import hashlib
+import html
 import io
 import re
 from collections.abc import Callable
@@ -303,6 +304,29 @@ def _csv_row(*cells: Any) -> str:
 def _csv_line(*cells: Any) -> str:
     """Fila CSV terminada en salto de línea (evita pegar celdas al exportar)."""
     return _csv_row(*cells) + "\n"
+
+
+def _plain_for_csv(text: str) -> str:
+    """Quita markdown/HTML; conserva saltos de línea para exportar por renglón."""
+    s = html.unescape(text)
+    s = re.sub(r"\*\*([^*]+)\*\*", r"\1", s)
+    s = re.sub(r"\*([^*]+)\*", r"\1", s)
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    lines: list[str] = []
+    for raw in s.splitlines():
+        line = re.sub(r"^#+\s*", "", raw).strip()
+        line = re.sub(r"\s+", " ", line)
+        if line:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def _csv_text_paragraphs(text: str) -> list[str]:
+    """Una fila CSV por renglón de texto (legible en Excel)."""
+    plain = _plain_for_csv(text)
+    if not plain:
+        return []
+    return [ln.strip() for ln in plain.splitlines() if ln.strip()]
 
 
 def build_guided_report_csv(
@@ -679,19 +703,28 @@ def build_clustering_report_csv(
         w("\n")
 
     if centers is not None and not centers.empty:
-        w(_csv_line("4. Centroides (K-means, espacio de rasgos)"))
+        w(
+            _csv_line(
+                "4. Centroides (proporciones medias por categoría dummy; recorte 0–1 "
+                "por artefacto numérico tras tipificar)"
+            )
+        )
         w("\n")
-        centers.round(4).to_csv(buf, lineterminator="\n")
+        cen_out = centers.round(4).clip(lower=0.0, upper=1.0)
+        cen_out.index.name = "cluster"
+        cen_out.to_csv(buf, lineterminator="\n")
         w("\n")
 
     if reading_hints.strip():
         w(_csv_line("5. Guía de lectura de clústeres"))
-        w(_csv_line(reading_hints.strip()))
+        for para in _csv_text_paragraphs(reading_hints):
+            w(_csv_line(para))
         w("\n")
 
     if interpretation.strip():
         w(_csv_line("6. Interpretación orientativa"))
-        w(_csv_line(interpretation.strip()))
+        for para in _csv_text_paragraphs(interpretation):
+            w(_csv_line(para))
         w("\n")
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
