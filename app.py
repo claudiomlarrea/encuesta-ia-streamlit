@@ -285,6 +285,38 @@ def load_table(uploaded: Any, path: str | None) -> tuple[pd.DataFrame, str]:
     raise ValueError("No hay archivo.")
 
 
+def _safe_int_slider(
+    label: str,
+    *,
+    min_value: int,
+    max_value: int,
+    default: int,
+    key: str,
+) -> int:
+    """Slider entero sin error cuando min==max o el valor guardado en sesión queda fuera de rango."""
+    lo, hi = int(min_value), int(max_value)
+    if hi < lo:
+        hi = lo
+    if key in st.session_state:
+        try:
+            st.session_state[key] = max(lo, min(hi, int(st.session_state[key])))
+        except (TypeError, ValueError):
+            st.session_state.pop(key, None)
+    if hi <= lo:
+        st.caption(f"**{label}:** {lo} (único valor posible con los ítems elegidos).")
+        return lo
+    val = max(lo, min(hi, int(default)))
+    return int(
+        st.slider(
+            label,
+            min_value=lo,
+            max_value=hi,
+            value=val,
+            key=key,
+        )
+    )
+
+
 def profiles_to_frame(profiles: list[ColumnProfile]) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -1307,23 +1339,28 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     if len(items_p) < 3:
                         st.info("Seleccioná al menos tres ítems correlacionados conceptualmente.")
                     else:
-                        max_dims = max(3, len(items_p))
-                        n_pc = st.slider(
+                        n_items = len(items_p)
+                        max_dims = max(3, n_items)
+                        n_pc = _safe_int_slider(
                             "Dimensiones PCA",
                             min_value=2,
                             max_value=min(12, max_dims),
-                            value=min(6, max_dims),
+                            default=min(6, max_dims),
                             key="slider_pca_dims",
                         )
-                        max_factors = max(2, min(8, len(items_p) - 1))
-                        nf_default = min(4, max_factors)
-                        nf = st.slider(
+                        max_factors = min(8, n_items - 1)
+                        nf = _safe_int_slider(
                             "Factores AFE",
                             min_value=2,
-                            max_value=max_factors,
-                            value=nf_default,
+                            max_value=max(2, max_factors),
+                            default=min(4, max(2, max_factors)),
                             key="slider_efa_factors",
                         )
+                        if n_items < 4:
+                            st.caption(
+                                "Con **3 ítems** el AFE admite como máximo **2 factores**; "
+                                "para elegir más factores, incluí al menos **4** columnas del mismo bloque."
+                            )
                         Xnum = likert_numeric_matrix(df_work, items_p, inverted_cols=invert_set).dropna(how="any")
                         rep_pca, warns_pca = ordinal_scaling_report(Xnum)
                         st.markdown("##### Escala efectiva por ítem (mezclas 4 vs 5 categorías)")
