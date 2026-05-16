@@ -40,29 +40,34 @@ def inject_theme() -> None:
             font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
         }}
 
-        [data-testid="stMain"] .block-container {{
+        [data-testid="stAppViewContainer"] [data-testid="stMain"] .block-container {{
             padding-top: 0.85rem;
             padding-bottom: 2.5rem;
-            padding-left: 1.25rem;
-            padding-right: 1.25rem;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
             max-width: 1180px;
         }}
 
-        .ec-institutional-wrap {{
+        /* Primera fila del encabezado institucional (logo + título) */
+        [data-testid="stMain"] [data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"]:first-child
+        [data-testid="stHorizontalBlock"],
+        [data-testid="stMain"] > div > div > div[data-testid="stHorizontalBlock"]:first-of-type {{
+            align-items: center !important;
+            gap: 1rem !important;
+            padding-left: 0.25rem !important;
+            margin-left: 0 !important;
+        }}
+        [data-testid="stMain"] [data-testid="stImage"] img {{
+            max-width: 88px;
+            width: 88px !important;
+            height: auto !important;
+            margin: 0 !important;
+        }}
+
+        .ec-institutional-rule {{
+            border: none;
             border-bottom: 3px solid {GREEN};
-            margin-bottom: 0.75rem;
-            padding-bottom: 0.65rem;
-        }}
-        .ec-institutional-wrap [data-testid="column"]:first-child {{
-            min-width: 100px;
-            max-width: 110px;
-        }}
-        .ec-institutional-wrap [data-testid="stImage"] img {{
-            max-width: 96px;
-            width: 100%;
-            height: auto;
-            display: block;
-            margin: 0 auto;
+            margin: 0 0 0.85rem 0;
         }}
         .ec-institutional-title {{
             margin: 0.15rem 0 0;
@@ -191,18 +196,17 @@ def inject_theme() -> None:
 
 def render_institutional_header() -> None:
     """Cabecera: logo y nombre del Observatorio de IA — UCCuyo."""
-    st.markdown('<div class="ec-institutional-wrap">', unsafe_allow_html=True)
-    col_logo, col_text = st.columns([1, 5], gap="small")
+    col_logo, col_text = st.columns([0.14, 0.86], gap="medium")
     with col_logo:
         if LOGO_PATH.is_file():
-            st.image(str(LOGO_PATH), width=96)
+            st.image(str(LOGO_PATH), width=88)
     with col_text:
         st.markdown(
             f'<p class="ec-institutional-title">{html.escape(OBSERVATORIO_NAME)}</p>'
             f'<p class="ec-institutional-sub">{html.escape(INSTITUTION_NAME)}</p>',
             unsafe_allow_html=True,
         )
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<hr class="ec-institutional-rule" />', unsafe_allow_html=True)
 
 
 def render_brand_header(app_name: str, subtitle: str) -> None:

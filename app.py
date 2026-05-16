@@ -200,19 +200,40 @@ def _clear_analysis_ui_state() -> None:
     for key in _UI_WIDGET_KEYS:
         st.session_state.pop(key, None)
     for key in list(st.session_state.keys()):
-        if str(key).startswith("guided_filter_"):
+        k = str(key)
+        if k.startswith("guided_filter_") or k.startswith("pick_main_sections") or k.startswith(
+            "pick_quant_modules"
+        ):
             st.session_state.pop(key, None)
 
 
-def _bind_ui_to_dataset(dataset_name: str | None) -> None:
-    """Si cambió el archivo cargado, vuelve pestañas y módulos al estado inicial."""
-    token = dataset_name or ""
+def _dataset_session_token() -> str:
+    df = st.session_state.get("loaded_df")
+    name = st.session_state.get("loaded_name") or ""
+    if df is None:
+        return ""
+    return f"{name}|{int(df.shape[0])}|{int(df.shape[1])}|{len(df.columns)}"
+
+
+def _widget_key(base: str) -> str:
+    """Claves de widgets atadas al archivo cargado (nueva encuesta → estado limpio)."""
+    token = st.session_state.get("_ui_bound_to") or "sin_datos"
+    safe = "".join(c if c.isalnum() else "_" for c in token)[:80]
+    return f"{base}__{safe}"
+
+
+def _bind_ui_to_dataset() -> bool:
+    """
+    Si cambió la encuesta cargada, limpia widgets y devuelve True si hubo cambio
+    (conviene st.rerun() antes de dibujar multiselects).
+    """
+    token = _dataset_session_token()
     prev = st.session_state.get("_ui_bound_to")
     if prev == token:
-        return
-    if prev is not None:
-        _clear_analysis_ui_state()
+        return False
+    _clear_analysis_ui_state()
     st.session_state._ui_bound_to = token
+    return True
 
 
 @st.cache_resource(show_spinner=True)
@@ -308,11 +329,19 @@ def main() -> None:
     try:
         if up is not None:
             df_new, fname_new = load_table(up, None)
+            new_token = f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
+            if new_token != _dataset_session_token():
+                _clear_analysis_ui_state()
+                st.session_state._ui_bound_to = None
             st.session_state.loaded_df = df_new
             st.session_state.loaded_name = fname_new
         elif manual_path.strip():
             try:
                 df_new, fname_new = load_table(None, manual_path.strip())
+                new_token = f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
+                if new_token != _dataset_session_token():
+                    _clear_analysis_ui_state()
+                    st.session_state._ui_bound_to = None
                 st.session_state.loaded_df = df_new
                 st.session_state.loaded_name = fname_new
             except Exception as pe:
@@ -341,25 +370,10 @@ def main() -> None:
         )
         return
 
-    _bind_ui_to_dataset(st.session_state.loaded_name)
-
-    with st.sidebar:
-        main_sections = st.multiselect(
-            "Pestañas del panel que querés ver",
-            MAIN_TABS_ORDER,
-            default=list(MAIN_TABS_ORDER),
-            key="pick_main_sections",
-            help="Ocultá lo que no uses para ir directo a lo que necesitás.",
-        )
-        quant_modules = st.multiselect(
-            "Módulos dentro de «Análisis cuantitativo»",
-            QUANT_MODULE_ORDER,
-            default=list(QUANT_MODULE_ORDER),
-            key="pick_quant_modules",
-            help="Mostrá sólo los análisis que quieras hacer ahora (menos pestañas = más claro).",
-        )
-
     if st.session_state.loaded_df is None:
+        if st.session_state.get("_ui_bound_to"):
+            _clear_analysis_ui_state()
+            st.session_state.pop("_ui_bound_to", None)
         st.info(
             "**Subí el archivo** con el botón «Browse files» en la barra lateral. "
             "En la nube **no funciona** pegar una carpeta local; sólo la subida de archivos."
@@ -379,11 +393,28 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             )
         return
 
+    if _bind_ui_to_dataset():
+        st.rerun()
+
     df = st.session_state.loaded_df
     fname = st.session_state.loaded_name or "datos.xlsx"
     st.success(f"Archivo cargado: **{fname}** — {df.shape[0]} filas × {df.shape[1]} columnas")
 
     with st.sidebar:
+        main_sections = st.multiselect(
+            "Pestañas del panel que querés ver",
+            MAIN_TABS_ORDER,
+            default=list(MAIN_TABS_ORDER),
+            key=_widget_key("pick_main_sections"),
+            help="Ocultá lo que no uses para ir directo a lo que necesitás.",
+        )
+        quant_modules = st.multiselect(
+            "Módulos dentro de «Análisis cuantitativo»",
+            QUANT_MODULE_ORDER,
+            default=list(QUANT_MODULE_ORDER),
+            key=_widget_key("pick_quant_modules"),
+            help="Mostrá sólo los análisis que quieras hacer ahora (menos pestañas = más claro).",
+        )
         st.markdown("---")
         if st.button("Quitar archivo y reiniciar sesión", type="secondary"):
             st.session_state.loaded_df = None
