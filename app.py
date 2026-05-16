@@ -89,6 +89,7 @@ from survey_intel import (
     ngram_top_table,
     thematic_nmf,
 )
+from feedback import render_institutional_contact
 from survey_guided import (
     analysis_options_for_column,
     apply_cohort_filters,
@@ -435,6 +436,9 @@ def main() -> None:
             ),
         )
         topic_k = st.slider("Cantidad de temas (NMF)", 3, 10, 5)
+
+        st.markdown("---")
+        render_institutional_contact()
 
     load_error: str | None = None
     path_load_warning: str | None = None
