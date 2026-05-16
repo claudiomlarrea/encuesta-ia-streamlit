@@ -1,4 +1,4 @@
-"""Botón y enlace al instructivo en PDF."""
+"""Botón para abrir el instructivo en PDF."""
 from __future__ import annotations
 
 import base64
@@ -32,15 +32,13 @@ def _button_styles() -> str:
 
 
 def render_instructivo_button() -> None:
-    """Abre el PDF en pestaña nueva (blob local) con respaldo de descarga y enlace GitHub."""
+    """Un botón verde: abre el instructivo PDF en pestaña nueva."""
     if not _PDF_PATH.is_file():
         st.caption("Instructivo PDF no encontrado en el servidor.")
         return
 
-    pdf_bytes = _PDF_PATH.read_bytes()
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    pdf_b64 = base64.b64encode(_PDF_PATH.read_bytes()).decode("ascii")
 
-    # Streamlit elimina enlaces data: → about:blank; abrimos el PDF con blob en el navegador.
     components.html(
         f"""
         <!DOCTYPE html>
@@ -73,7 +71,7 @@ def render_instructivo_button() -> None:
                     const opener = window.top || window.parent || window;
                     const w = opener.open(url, "_blank", "noopener,noreferrer");
                     if (!w) {{
-                        alert("Permití ventanas emergentes para ver el instructivo, o usá «Descargar instructivo» debajo.");
+                        opener.open(fallback, "_blank", "noopener,noreferrer");
                     }}
                 }} catch (e) {{
                     (window.top || window.parent || window).open(fallback, "_blank", "noopener,noreferrer");
@@ -87,17 +85,4 @@ def render_instructivo_button() -> None:
         height=52,
     )
 
-    st.caption(
-        "Se abre el instructivo en PDF en una pestaña nueva. "
-        f"Si no carga, [abrilo desde GitHub]({_GITHUB_PDF_URL}) o descargalo abajo."
-    )
-
-    st.download_button(
-        "Descargar instructivo (PDF)",
-        data=pdf_bytes,
-        file_name="instructivo_encuesta_clara.pdf",
-        mime="application/pdf",
-        type="primary",
-        use_container_width=False,
-        key="download_instructivo_pdf",
-    )
+    st.caption("Se abre el instructivo en PDF en una pestaña nueva del navegador.")
