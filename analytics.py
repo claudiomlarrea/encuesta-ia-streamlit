@@ -17,26 +17,38 @@ def _measurement_id() -> str | None:
 
 
 def inject_google_analytics() -> None:
-    """Inserta gtag.js si hay measurement_id en st.secrets['analytics']."""
+    """Inserta gtag.js en la página principal (Streamlit corre en iframe)."""
     mid = _measurement_id()
     if not mid:
         return
 
+    if st.session_state.get("_ga_injected"):
+        return
+    st.session_state["_ga_injected"] = True
+
     components.html(
         f"""
-        <!DOCTYPE html>
-        <html><head>
-        <script async src="https://www.googletagmanager.com/gtag/js?id={mid}"></script>
         <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){{dataLayer.push(arguments);}}
-            gtag('js', new Date());
-            gtag('config', '{mid}', {{
-                'anonymize_ip': true,
-                'page_path': window.location.pathname
-            }});
+        (function () {{
+            const mid = "{mid}";
+            const doc = window.parent.document;
+            if (doc.getElementById("ec-ga-loader")) return;
+            const loader = doc.createElement("script");
+            loader.id = "ec-ga-loader";
+            loader.async = true;
+            loader.src = "https://www.googletagmanager.com/gtag/js?id=" + mid;
+            doc.head.appendChild(loader);
+            const inline = doc.createElement("script");
+            inline.id = "ec-ga-inline";
+            inline.text = [
+                "window.dataLayer = window.dataLayer || [];",
+                "function gtag(){{dataLayer.push(arguments);}}",
+                "gtag('js', new Date());",
+                "gtag('config', '" + mid + "', {{ anonymize_ip: true }});"
+            ].join("\\n");
+            doc.head.appendChild(inline);
+        }})();
         </script>
-        </head><body></body></html>
         """,
         height=0,
     )
