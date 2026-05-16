@@ -55,6 +55,15 @@ FREQ_HIGH_TERMS = frozenset(
 
 FREQ_LOW_TERMS = frozenset({"nunca", "rara vez", "pocas veces"})
 
+STOP_TOKENS = frozenset(
+    """
+    el la los las un una unos unas y o u de del al a en con por para sin sobre entre
+    cuántos cuantos cuántas cuantas qué que como cómo cuál cual cuales son es está
+    hay tienen tiene tengo usar usan utilizan utilizan alumnos alumnas estudiantes
+    persona personas muestra encuesta datos cuánto cuanto
+    """.split()
+)
+
 
 @dataclass
 class FilterSpec:
@@ -127,6 +136,150 @@ def _best_column(
         if best is None or sc > best[0]:
             best = (sc, str(c))
     return best[1] if best else None
+
+
+def _column_catalog(df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[tuple[int, str, ColumnProfile]]:
+    prof_map = {p.name: p for p in profiles}
+    out: list[tuple[int, str, ColumnProfile]] = []
+    for i, c in enumerate(df.columns):
+        if is_timestamp_column(c):
+            continue
+        p = prof_map.get(str(c))
+        if p is None:
+            p = ColumnProfile(
+                name=str(c),
+                short_name=str(c)[:64],
+                kind="estructurada",
+                subtype="",
+                n_non_null=int(df[c].notna().sum()),
+                n_unique=int(df[c].astype(str).nunique()),
+                avg_len=0.0,
+                max_len=0,
+            )
+        out.append((i + 1, str(c), p))
+    return out
+
+
+def _rank_columns_by_question(
+    question: str,
+    df: pd.DataFrame,
+    profiles: list[ColumnProfile],
+    *,
+    top_k: int = 5,
+    open_only: bool = False,
+) -> list[tuple[float, str]]:
+    tok = _tokens(question) - STOP_TOKENS
+    if not tok:
+        return []
+    scored: list[tuple[float, str]] = []
+    prof_map = {p.name: p for p in profiles}
+    for c in df.columns:
+        if is_timestamp_column(c):
+            continue
+        p = prof_map.get(str(c))
+        if open_only and p and p.kind != "abierta":
+            continue
+        if not open_only and p and p.kind == "abierta":
+            continue
+        col_tok = _tokens(str(c).replace("\n", " "))
+        if not col_tok:
+            continue
+        overlap = len(tok & col_tok)
+        if overlap == 0:
+            # subcadena larga en nombre de columna
+            lc = str(c).lower()
+            for t in tok:
+                if len(t) >= 5 and t in lc:
+                    overlap += 1
+        if overlap <= 0:
+            continue
+        score = float(overlap) + overlap / max(len(col_tok), 1)
+        scored.append((score, str(c)))
+    scored.sort(key=lambda x: -x[0])
+    return scored[:top_k]
+
+
+def _filters_from_response_overlap(question: str, col: str, series: pd.Series) -> list[FilterSpec]:
+    """Si la pregunta menciona categorías que existen en los datos, arma filtros."""
+    tok = _tokens(question) - STOP_TOKENS
+    ql = question.lower()
+    found: list[FilterSpec] = []
+    vc = series.dropna().astype(str)
+    for val, cnt in vc.value_counts().head(40).items():
+        if cnt < 1:
+            continue
+        vnorm = _normalize_cell(val)
+        if len(vnorm) < 3:
+            continue
+        vtok = _tokens(vnorm)
+        if vnorm in ql or (len(vnorm) >= 5 and vnorm in ql):
+            found.append(
+                FilterSpec(
+                    column=col,
+                    op="equals_norm",
+                    value=val,
+                    label=f"Respuesta = «{str(val)[:70]}»",
+                )
+            )
+            continue
+        overlap = len(tok & vtok)
+        if overlap >= 2 or (overlap >= 1 and len(vtok) <= 4):
+            found.append(
+                FilterSpec(
+                    column=col,
+                    op="response_contains",
+                    value=vnorm[:48],
+                    label=f"Respuesta contiene «{vnorm[:50]}»",
+                )
+            )
+    return found[:2]
+
+
+def _filter_from_subitem_in_question(question: str, df: pd.DataFrame) -> FilterSpec | None:
+    """Ítem de matriz cuyo texto entre [corchetes] aparece en la pregunta."""
+    tok = _tokens(question) - STOP_TOKENS
+    best: tuple[float, str] | None = None
+    for c in df.columns:
+        if "[" not in str(c):
+            continue
+        inner = str(c).split("[", 1)[1].split("]", 1)[0]
+        itok = _tokens(inner)
+        if not itok:
+            continue
+        overlap = len(tok & itok)
+        if overlap >= 2 or (len(itok) <= 5 and overlap >= max(1, len(itok) - 1)):
+            sc = float(overlap)
+            if best is None or sc > best[0]:
+                best = (sc, str(c))
+    if not best:
+        return None
+    col = best[1]
+    return FilterSpec(
+        column=col,
+        op="any_response",
+        value=None,
+        label=f"Respondió el ítem «{col.split('[')[-1].split(']')[0][:55]}» (dato no vacío)",
+    )
+
+
+def _extra_demographic_filters(question: str, df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[FilterSpec]:
+    ql = question.lower()
+    out: list[FilterSpec] = []
+    if any(x in ql for x in ("mujer", "mujeres", "femenin", "ellas")):
+        cg = _best_column(df, profiles, ["género", "genero"])
+        if cg:
+            out.append(
+                FilterSpec(cg, "response_contains", "femenin", "Género: femenino / mujer")
+            )
+    if any(x in ql for x in ("hombre", "hombres", "masculin", "ellos")):
+        cg = _best_column(df, profiles, ["género", "genero"])
+        if cg:
+            out.append(FilterSpec(cg, "response_contains", "masculin", "Género: masculino / hombre"))
+    if "primer" in ql and ("año" in ql or "anio" in ql or "carrera" in ql):
+        ca = _best_column(df, profiles, ["año de la carrera", "ano de la carrera"])
+        if ca:
+            out.append(FilterSpec(ca, "response_contains", "1", "Año de carrera: primer año"))
+    return out
 
 
 def _usage_frequency_columns(df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[str]:
@@ -221,7 +374,7 @@ def _freq_filter(question: str, col: str, *, high: bool) -> FilterSpec | None:
     return None
 
 
-def plan_question(
+def _plan_question_heuristic(
     question: str,
     df: pd.DataFrame,
     profiles: list[ColumnProfile],
@@ -345,12 +498,53 @@ def plan_question(
     if warnings:
         conf -= 0.1
 
+    filters.extend(_extra_demographic_filters(q, df, profiles))
+
+    sub_f = _filter_from_subitem_in_question(q, df)
+    if sub_f and not any(f.column == sub_f.column for f in filters):
+        filters.append(sub_f)
+
+    # Fallback: emparejar pregunta con columnas y valores reales del Excel
+    if intent == "count_filtered" and len(filters) < 2:
+        ranked = _rank_columns_by_question(q, df, profiles, top_k=3)
+        for _sc, col in ranked:
+            for vf in _filters_from_response_overlap(q, col, df[col]):
+                if not any(f.column == vf.column and f.op == vf.op for f in filters):
+                    filters.append(vf)
+            if len(filters) >= 4:
+                break
+        if ranked and not primary:
+            primary = ranked[0][1]
+
     if intent == "count_filtered" and not filters:
-        warnings.append(
-            "No detecté filtros claros (facultad, trabajo, frecuencia). "
-            "Probá: «¿Cuántos de Don Bosco…?», «…no trabajan…», «…usan IA frecuentemente…?»"
-        )
-        conf = 0.25
+        ranked = _rank_columns_by_question(q, df, profiles, top_k=1)
+        if ranked and ranked[0][0] >= 1.2:
+            intent = "describe"
+            primary = ranked[0][1]
+            notes.append("fallback_describe_column_match")
+            warnings.append(
+                "No pude traducir la pregunta a filtros concretos; muestro la **distribución** "
+                f"de la columna del cuestionario que más se parece a lo que preguntaste."
+            )
+            conf = max(conf, 0.38)
+        else:
+            warnings.append(
+                "Intentá nombrar **facultad**, **trabajo**, **uso de IA**, un **ítem** del formulario "
+                "o pedí la **distribución** de una variable."
+            )
+            conf = min(conf, 0.3)
+    elif intent == "open_text" and not primary:
+        ranked = _rank_columns_by_question(q, df, profiles, top_k=1, open_only=True)
+        if ranked:
+            primary = ranked[0][1]
+            conf += 0.15
+    elif intent == "crosstab":
+        ranked = _rank_columns_by_question(q, df, profiles, top_k=2)
+        if len(ranked) >= 2:
+            primary = primary or ranked[0][1]
+            secondary = secondary or ranked[1][1]
+        elif len(ranked) == 1:
+            primary = primary or ranked[0][1]
 
     return QueryPlan(
         intent=intent,
@@ -362,6 +556,103 @@ def plan_question(
         warnings=warnings,
         notes=notes,
     )
+
+
+def _plan_with_openai(
+    question: str,
+    df: pd.DataFrame,
+    profiles: list[ColumnProfile],
+    api_key: str,
+) -> QueryPlan | None:
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return None
+
+    catalog = _column_catalog(df, profiles)
+    lines = []
+    for idx, col, p in catalog[:45]:
+        lines.append(f"{idx}. [{p.kind}/{p.subtype[:30]}] {col.replace(chr(10), ' ')[:120]}")
+    catalog_txt = "\n".join(lines)
+
+    system = (
+        "Sos un planificador de análisis de encuestas. Devolvé SOLO JSON válido con:\n"
+        '{"intent":"count_filtered|describe|crosstab|open_text","filters":[{"column_index":N,'
+        '"op":"contains_text|not_working|ordinal_at_least|equals_norm|response_contains|any_response",'
+        '"value":...,"label":"..."}],"primary_column_index":N|null,"secondary_column_index":N|null,'
+        '"confidence":0.0-1.0}\n'
+        "Usá column_index del catálogo. Para facultades usá contains_text con código FBOSCO, FEDSJ, etc."
+    )
+    user = f"Pregunta del usuario:\n{question}\n\nCatálogo de columnas:\n{catalog_txt}"
+
+    client = OpenAI(api_key=api_key)
+    model = __import__("os").getenv("OPENAI_MODEL", "gpt-4o-mini")
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.1,
+        response_format={"type": "json_object"},
+    )
+    import json
+
+    raw = resp.choices[0].message.content or "{}"
+    data = json.loads(raw)
+    idx_to_col = {idx: col for idx, col, _ in catalog}
+
+    def _col(i: Any) -> str | None:
+        if i is None:
+            return None
+        try:
+            return idx_to_col.get(int(i))
+        except (TypeError, ValueError):
+            return None
+
+    filters: list[FilterSpec] = []
+    for f in data.get("filters") or []:
+        col = _col(f.get("column_index"))
+        if not col:
+            continue
+        filters.append(
+            FilterSpec(
+                column=col,
+                op=str(f.get("op", "response_contains")),
+                value=f.get("value"),
+                label=str(f.get("label", "Filtro"))[:120],
+            )
+        )
+
+    intent = str(data.get("intent", "count_filtered"))
+    if intent not in ("count_filtered", "describe", "crosstab", "open_text", "unsupported"):
+        intent = "count_filtered"
+
+    return QueryPlan(
+        intent=intent,  # type: ignore[arg-type]
+        question=question,
+        filters=filters,
+        primary_column=_col(data.get("primary_column_index")),
+        secondary_column=_col(data.get("secondary_column_index")),
+        confidence=float(data.get("confidence", 0.55)),
+        notes=["plan_openai"],
+    )
+
+
+def plan_question(
+    question: str,
+    df: pd.DataFrame,
+    profiles: list[ColumnProfile],
+    *,
+    openai_api_key: str | None = None,
+    use_llm: bool = False,
+) -> QueryPlan:
+    """Entrada principal: heurísticas locales; opcionalmente OpenAI si hay API key."""
+    if openai_api_key and use_llm:
+        try:
+            llm_plan = _plan_with_openai(question, df, profiles, openai_api_key.strip())
+            if llm_plan and llm_plan.confidence >= 0.4 and (llm_plan.filters or llm_plan.primary_column):
+                return llm_plan
+        except Exception:
+            pass
+    return _plan_question_heuristic(question, df, profiles)
 
 
 def _apply_filter(df: pd.DataFrame, spec: FilterSpec) -> pd.Series:
@@ -390,6 +681,12 @@ def _apply_filter(df: pd.DataFrame, spec: FilterSpec) -> pd.Series:
     if spec.op == "equals_norm":
         target = _normalize_cell(spec.value)
         return s.map(_normalize_cell) == target
+    if spec.op == "response_contains":
+        pat = str(spec.value).lower()
+        raw = s.fillna("").astype(str).str.lower()
+        return raw.str.contains(re.escape(pat), regex=True, na=False)
+    if spec.op == "any_response":
+        return s.fillna("").astype(str).str.strip().astype(bool)
     return pd.Series(True, index=df.index)
 
 

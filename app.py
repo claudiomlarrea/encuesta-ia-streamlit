@@ -342,37 +342,63 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         with T_main["Pregunta a la encuesta"]:
             st.subheader("Consulta en lenguaje natural")
             st.caption(
-                "Escribí una pregunta sobre los datos cargados. El sistema detecta filtros y columnas "
-                "(facultad, trabajo, frecuencia de IA, texto abierto, etc.) y responde con **números** "
-                "más una **lectura interpretativa** usando las mismas reglas del panel (sin ChatGPT obligatorio)."
+                "Escribí **cualquier pregunta** en español sobre el Excel cargado. "
+                "El sistema elige columnas y análisis (conteos, distribución, cruce, texto abierto) "
+                "y responde con números más interpretación — **sin elegir de una lista fija**."
             )
-            if "survey_qa_last" not in st.session_state:
-                st.session_state.survey_qa_last = ""
 
-            ex = st.selectbox(
-                "Ejemplos (podés editarlos abajo)",
-                ["(escribí la tuya)"] + example_questions(),
-                key="survey_qa_example_pick",
-            )
-            default_q = "" if ex == "(escribí la tuya)" else ex
             question = st.text_area(
                 "Tu pregunta",
-                value=st.session_state.survey_qa_last or default_q,
-                height=100,
-                placeholder="Ej.: ¿Cuántos de Don Bosco usan IA frecuentemente y no trabajan?",
+                height=120,
+                placeholder=(
+                    "Ej.: ¿Cuántos de Don Bosco usan IA seguido y no trabajan? · "
+                    "¿Qué porcentaje es mujer? · Distribución del año de carrera · "
+                    "¿Qué dicen sobre los riesgos de la IA?"
+                ),
                 key="survey_qa_question",
             )
+
+            with st.expander("Mejor comprensión con OpenAI (opcional)"):
+                st.caption(
+                    "Sin API key se usa interpretación **local** (palabras clave + columnas del formulario). "
+                    "Con key, un modelo ayuda a mapear preguntas difíciles."
+                )
+                st.text_input(
+                    "OPENAI_API_KEY",
+                    type="password",
+                    key="survey_qa_openai_key",
+                    help="No se guarda en el servidor más allá de esta sesión.",
+                )
+                st.checkbox(
+                    "Usar OpenAI para interpretar la pregunta",
+                    value=False,
+                    key="survey_qa_use_llm",
+                )
+
             run_q = st.button("Analizar pregunta", type="primary", key="survey_qa_run")
 
+            with st.expander("Ejemplos para copiar y pegar (opcional)"):
+                for ex in example_questions():
+                    st.markdown(f"- {ex}")
+
             if run_q and question.strip():
-                st.session_state.survey_qa_last = question.strip()
-                plan = plan_question(question.strip(), df, profiles)
+                _qa_key = str(st.session_state.get("survey_qa_openai_key", "") or "").strip()
+                _use_llm = bool(st.session_state.get("survey_qa_use_llm", False))
+                plan = plan_question(
+                    question.strip(),
+                    df,
+                    profiles,
+                    openai_api_key=_qa_key if _use_llm and _qa_key else None,
+                    use_llm=_use_llm,
+                )
                 result = run_plan(df, plan, profiles)
 
-                st.markdown("##### Plan detectado")
-                c1, c2 = st.columns(2)
-                c1.metric("Confianza heurística", f"{plan.confidence:.0%}")
-                c2.metric("Tipo de análisis", plan.intent)
+                st.markdown("##### Cómo interpretó tu pregunta")
+                c1, c2, c3 = st.columns(3)
+                planner = "OpenAI + reglas" if plan.notes and "plan_openai" in plan.notes else "Reglas locales"
+                c1.metric("Motor", planner)
+                c2.metric("Confianza", f"{plan.confidence:.0%}")
+                c3.metric("Tipo de análisis", plan.intent)
                 if plan.filters:
                     st.markdown("**Condiciones aplicadas:**")
                     for f in plan.filters:
@@ -413,14 +439,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             st.markdown("---")
             st.markdown(
                 """
-**Qué entiende hoy (español, heurístico):**
-- Conteos con filtros: facultad/unidad (Don Bosco, FEDSJ, …), **no trabajan**, uso de IA **frecuente**.
-- Distribución de una variable cerrada.
-- Muestra de respuestas en preguntas **abiertas** (ventajas, riesgos, recomendaciones…).
-- Cruces simples si pedís «cruce» o «asociación».
+**Cómo funciona:** lee el texto de **todas las columnas** del formulario, arma filtros cuando puede
+(facultad, trabajo, frecuencia, género, respuestas concretas) y, si no alcanza, muestra la distribución
+de la columna más parecida a tu pregunta.
 
-Para análisis avanzados (PCA, SHAP, clustering, CFA) seguí usando **Análisis cuantitativo**.  
-Para temas y sentimiento en texto, **Análisis cualitativo**.
+Para PCA, SHAP, clustering o CFA usá **Análisis cuantitativo**. Para temas NMF o sentimiento en profundidad, **Análisis cualitativo**.
                 """
             )
 
