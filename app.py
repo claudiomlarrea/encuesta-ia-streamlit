@@ -82,6 +82,7 @@ from survey_intel import (
     ngram_top_table,
     thematic_nmf,
 )
+from survey_qa import example_questions, interpret_result, plan_question, run_plan
 
 st.set_page_config(
     page_title="Análisis de encuesta",
@@ -122,6 +123,7 @@ def _bloque_lectura_academica_predictivos(texto_md: str) -> None:
 
 MAIN_TABS_ORDER = [
     "Resumen de ítems",
+    "Pregunta a la encuesta",
     "Análisis cuantitativo",
     "Análisis cualitativo",
     "Guía metodológica",
@@ -335,6 +337,92 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         return
 
     T_main = dict(zip(main_ordered, st.tabs(main_ordered)))
+
+    if "Pregunta a la encuesta" in T_main:
+        with T_main["Pregunta a la encuesta"]:
+            st.subheader("Consulta en lenguaje natural")
+            st.caption(
+                "Escribí una pregunta sobre los datos cargados. El sistema detecta filtros y columnas "
+                "(facultad, trabajo, frecuencia de IA, texto abierto, etc.) y responde con **números** "
+                "más una **lectura interpretativa** usando las mismas reglas del panel (sin ChatGPT obligatorio)."
+            )
+            if "survey_qa_last" not in st.session_state:
+                st.session_state.survey_qa_last = ""
+
+            ex = st.selectbox(
+                "Ejemplos (podés editarlos abajo)",
+                ["(escribí la tuya)"] + example_questions(),
+                key="survey_qa_example_pick",
+            )
+            default_q = "" if ex == "(escribí la tuya)" else ex
+            question = st.text_area(
+                "Tu pregunta",
+                value=st.session_state.survey_qa_last or default_q,
+                height=100,
+                placeholder="Ej.: ¿Cuántos de Don Bosco usan IA frecuentemente y no trabajan?",
+                key="survey_qa_question",
+            )
+            run_q = st.button("Analizar pregunta", type="primary", key="survey_qa_run")
+
+            if run_q and question.strip():
+                st.session_state.survey_qa_last = question.strip()
+                plan = plan_question(question.strip(), df, profiles)
+                result = run_plan(df, plan, profiles)
+
+                st.markdown("##### Plan detectado")
+                c1, c2 = st.columns(2)
+                c1.metric("Confianza heurística", f"{plan.confidence:.0%}")
+                c2.metric("Tipo de análisis", plan.intent)
+                if plan.filters:
+                    st.markdown("**Condiciones aplicadas:**")
+                    for f in plan.filters:
+                        st.markdown(f"- {f.label}")
+                for w in plan.warnings:
+                    st.warning(w)
+
+                if result.ok and result.intent == "count_filtered":
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Casos que cumplen", result.n_match)
+                    m2.metric("Total encuesta", result.n_total)
+                    m3.metric("% del total", f"{result.metrics.get('pct', 0):.1f}%")
+
+                for name, tbl in result.tables.items():
+                    if tbl is not None and not (hasattr(tbl, "empty") and tbl.empty):
+                        st.markdown(f"##### Tabla: {name}")
+                        st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+                _bloque_interpretacion_cuantitativa(
+                    interpret_result(plan, result, df, col_labels=col_labels)
+                )
+
+                with st.expander("Detalle técnico (columnas usadas)"):
+                    st.json(
+                        {
+                            "intent": plan.intent,
+                            "primary_column": plan.primary_column,
+                            "secondary_column": plan.secondary_column,
+                            "filters": [
+                                {"column": f.column[:80], "op": f.op, "label": f.label}
+                                for f in plan.filters
+                            ],
+                        }
+                    )
+            elif run_q:
+                st.info("Escribí una pregunta antes de analizar.")
+
+            st.markdown("---")
+            st.markdown(
+                """
+**Qué entiende hoy (español, heurístico):**
+- Conteos con filtros: facultad/unidad (Don Bosco, FEDSJ, …), **no trabajan**, uso de IA **frecuente**.
+- Distribución de una variable cerrada.
+- Muestra de respuestas en preguntas **abiertas** (ventajas, riesgos, recomendaciones…).
+- Cruces simples si pedís «cruce» o «asociación».
+
+Para análisis avanzados (PCA, SHAP, clustering, CFA) seguí usando **Análisis cuantitativo**.  
+Para temas y sentimiento en texto, **Análisis cualitativo**.
+                """
+            )
 
     if "Resumen de ítems" in T_main:
         with T_main["Resumen de ítems"]:
