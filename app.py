@@ -743,6 +743,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     report_csv,
                                     file_name="consulta_guiada.csv",
                                     mime="text/csv",
+                                    type="primary",
+                                    use_container_width=True,
                                     key="guided_download_csv",
                                 )
 
@@ -843,12 +845,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     csv_b,
                     file_name="bloques_pregunta_ordinales.csv",
                     mime="text/csv",
+                    type="primary",
                 )
                 d2.download_button(
                     "Descargar detalle columnas (CSV)",
                     csv_d,
                     file_name="detalle_ordinales_por_columna.csv",
                     mime="text/csv",
+                    type="primary",
                 )
             else:
                 st.info("No hay columnas para analizar (revisá el archivo y la marca temporal).")
@@ -1007,6 +1011,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             data=ft.to_csv(index=False).encode("utf-8"),
                             file_name="frecuencias.csv",
                             mime="text/csv",
+                            type="primary",
                         )
                         _bloque_interpretacion_cuantitativa(descriptive_explanatory(desc, ft))
         
@@ -1293,6 +1298,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                         data=rel_r.to_csv(encoding="utf-8"),
                                         file_name="cor_poly.csv",
                                         mime="text/csv",
+                                        type="primary",
                                     )
                                     st.code(lavaan_export_snippet(latent_lavaan, sane_names, len(Xnum)), language="r")
                                     with st.expander("Matriz policórica (vista rápida, nombres originales abreviados)"):
@@ -1619,6 +1625,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             data=tabla_preg.to_csv(index=False).encode("utf-8"),
                                             file_name="shap_importancia_por_pregunta.csv",
                                             mime="text/csv",
+                                            type="primary",
                                             key="dl_shap_by_question",
                                             help="Filas fusionadas desde la tabla detallada; misma muestra que el gráfico.",
                                         )
@@ -1639,6 +1646,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                                 data=tabla_shap.to_csv(index=False).encode("utf-8"),
                                                 file_name="shap_importancia_por_columna_modelo.csv",
                                                 mime="text/csv",
+                                                type="primary",
                                                 key="dl_shap_rel_pct",
                                                 help="Misma muestra que el gráfico (subconjunto del conjunto de test).",
                                             )
@@ -1685,6 +1693,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                                 data=rules.encode("utf-8"),
                                                 file_name="arbol_decision_reglas.txt",
                                                 mime="text/plain",
+                                                type="primary",
                                             )
                                             with st.expander("Ver reglas en texto (primeras líneas)"):
                                                 st.code(rules[:8000] + ("…" if len(rules) > 8000 else ""), language="text")
@@ -1828,6 +1837,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             .encode("utf-8"),
                             file_name="temas_nmf_por_respuesta.csv",
                             mime="text/csv",
+                            type="primary",
                         )
                         st.markdown("---")
                         st.markdown(
@@ -1911,6 +1921,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         data=out.to_csv(index=False).encode("utf-8"),
                         file_name="sentimiento_abiertas.csv",
                         mime="text/csv",
+                        type="primary",
                     )
                     used_hf = hf_ok and toggle_hf and _HAS_TRANSFORMERS
                     metodo_sent = (

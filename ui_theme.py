@@ -192,6 +192,33 @@ def inject_theme() -> None:
             color: {GREEN_DARK} !important;
         }}
 
+        [data-testid="stDownloadButton"] > button {{
+            background-color: {GREEN} !important;
+            color: {SURFACE} !important;
+            border: 1px solid {GREEN} !important;
+            border-radius: 10px;
+            font-weight: 600;
+            box-shadow: 0 2px 8px rgba(4, 74, 48, 0.22);
+        }}
+        [data-testid="stDownloadButton"] > button:hover {{
+            background-color: {GREEN_MID} !important;
+            border-color: {GREEN_MID} !important;
+            color: {SURFACE} !important;
+        }}
+        [data-testid="stDownloadButton"] > button:focus-visible {{
+            outline: none;
+            box-shadow: 0 0 0 0.2rem rgba(4, 74, 48, 0.35) !important;
+        }}
+        [data-testid="stDownloadButton"] > button p,
+        [data-testid="stDownloadButton"] > button span,
+        [data-testid="stDownloadButton"] > button div {{
+            color: {SURFACE} !important;
+        }}
+        [data-testid="stDownloadButton"] > button svg {{
+            fill: {SURFACE} !important;
+            stroke: {SURFACE} !important;
+        }}
+
         [data-testid="stDataFrame"] {{
             border: 1px solid #C5D9CE;
             border-radius: 10px;
