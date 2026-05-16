@@ -82,6 +82,15 @@ from survey_intel import (
     ngram_top_table,
     thematic_nmf,
 )
+from survey_guided import (
+    analysis_options_for_column,
+    apply_cohort_filters,
+    build_column_choices,
+    discover_filter_columns,
+    interpret_guided,
+    run_guided_analysis,
+    GuidedSpec,
+)
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
 
 st.set_page_config(
@@ -340,111 +349,204 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
     if "Pregunta a la encuesta" in T_main:
         with T_main["Pregunta a la encuesta"]:
-            st.subheader("Consulta en lenguaje natural")
+            st.subheader("Consultas sobre la encuesta")
             st.caption(
-                "Escribí **cualquier pregunta** en español sobre el Excel cargado. "
-                "El sistema elige columnas y análisis (conteos, distribución, cruce, texto abierto) "
-                "y responde con números más interpretación — **sin elegir de una lista fija**."
+                "Elegí la pregunta del formulario, opcionalmente filtrá la muestra y obtené tablas "
+                "con interpretación — sin ir pestaña por pestaña."
             )
 
-            question = st.text_area(
-                "Tu pregunta",
-                height=120,
-                placeholder=(
-                    "Ej.: ¿Cuántos de Don Bosco usan IA seguido y no trabajan? · "
-                    "¿Qué porcentaje es mujer? · Distribución del año de carrera · "
-                    "¿Qué dicen sobre los riesgos de la IA?"
-                ),
-                key="survey_qa_question",
+            qa_mode = st.radio(
+                "Modo",
+                ["Guiado (recomendado)", "Pregunta libre (experimental)"],
+                horizontal=True,
+                key="survey_qa_mode",
+                label_visibility="collapsed",
             )
 
-            with st.expander("Mejor comprensión con OpenAI (opcional)"):
-                st.caption(
-                    "Sin API key se usa interpretación **local** (palabras clave + columnas del formulario). "
-                    "Con key, un modelo ayuda a mapear preguntas difíciles."
-                )
-                st.text_input(
-                    "OPENAI_API_KEY",
-                    type="password",
-                    key="survey_qa_openai_key",
-                    help="No se guarda en el servidor más allá de esta sesión.",
-                )
-                st.checkbox(
-                    "Usar OpenAI para interpretar la pregunta",
-                    value=False,
-                    key="survey_qa_use_llm",
-                )
+            if qa_mode.startswith("Guiado"):
+                col_choices = build_column_choices(df, profiles)
+                if not col_choices:
+                    st.warning("No hay columnas analizables en el archivo cargado.")
+                else:
+                    label_to_choice = {c.label: c for c in col_choices}
+                    labels_sorted = sorted(label_to_choice.keys(), key=lambda x: label_to_choice[x].block_id)
 
-            run_q = st.button("Analizar pregunta", type="primary", key="survey_qa_run")
-
-            with st.expander("Ejemplos para copiar y pegar (opcional)"):
-                for ex in example_questions():
-                    st.markdown(f"- {ex}")
-
-            if run_q and question.strip():
-                _qa_key = str(st.session_state.get("survey_qa_openai_key", "") or "").strip()
-                _use_llm = bool(st.session_state.get("survey_qa_use_llm", False))
-                plan = plan_question(
-                    question.strip(),
-                    df,
-                    profiles,
-                    openai_api_key=_qa_key if _use_llm and _qa_key else None,
-                    use_llm=_use_llm,
-                )
-                result = run_plan(df, plan, profiles)
-
-                st.markdown("##### Cómo interpretó tu pregunta")
-                c1, c2, c3 = st.columns(3)
-                planner = "OpenAI + reglas" if plan.notes and "plan_openai" in plan.notes else "Reglas locales"
-                c1.metric("Motor", planner)
-                c2.metric("Confianza", f"{plan.confidence:.0%}")
-                c3.metric("Tipo de análisis", plan.intent)
-                if plan.filters:
-                    st.markdown("**Condiciones aplicadas:**")
-                    for f in plan.filters:
-                        st.markdown(f"- {f.label}")
-                for w in plan.warnings:
-                    st.warning(w)
-
-                if result.ok and result.intent == "count_filtered":
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("Casos que cumplen", result.n_match)
-                    m2.metric("Total encuesta", result.n_total)
-                    m3.metric("% del total", f"{result.metrics.get('pct', 0):.1f}%")
-
-                for name, tbl in result.tables.items():
-                    if tbl is not None and not (hasattr(tbl, "empty") and tbl.empty):
-                        st.markdown(f"##### Tabla: {name}")
-                        st.dataframe(tbl, use_container_width=True, hide_index=True)
-
-                _bloque_interpretacion_cuantitativa(
-                    interpret_result(plan, result, df, col_labels=col_labels)
-                )
-
-                with st.expander("Detalle técnico (columnas usadas)"):
-                    st.json(
-                        {
-                            "intent": plan.intent,
-                            "primary_column": plan.primary_column,
-                            "secondary_column": plan.secondary_column,
-                            "filters": [
-                                {"column": f.column[:80], "op": f.op, "label": f.label}
-                                for f in plan.filters
-                            ],
-                        }
+                    st.markdown("##### 1. Pregunta del cuestionario")
+                    sel_label = st.selectbox(
+                        "Columna / ítem",
+                        labels_sorted,
+                        format_func=lambda x: x,
+                        key="guided_primary_label",
+                        help="Listado por número de bloque (#) y texto del ítem o enunciado.",
                     )
-            elif run_q:
-                st.info("Escribí una pregunta antes de analizar.")
+                    choice = label_to_choice[sel_label]
+                    ic1, ic2, ic3 = st.columns(3)
+                    ic1.caption(f"Tipo: **{choice.kind}** · {choice.subtype[:48]}")
+                    ic2.caption(f"Respuestas válidas: **{choice.n_valid}**")
+                    ic3.caption(f"Bloque **#{choice.block_id}**")
 
-            st.markdown("---")
-            st.markdown(
-                """
-**Cómo funciona:** lee el texto de **todas las columnas** del formulario, arma filtros cuando puede
-(facultad, trabajo, frecuencia, género, respuestas concretas) y, si no alcanza, muestra la distribución
-de la columna más parecida a tu pregunta.
+                    st.markdown("##### 2. Filtrar la muestra (opcional)")
+                    st.caption("Solo se analizan filas que cumplan **todos** los filtros que marques.")
+                    filter_cols = discover_filter_columns(df)
+                    cohort_filters: dict[str, list[str]] = {}
+                    cohort_labels: dict[str, list[str]] = {}
+                    if filter_cols:
+                        nf = len(filter_cols)
+                        cols_f = st.columns(min(nf, 3))
+                        for i, fc in enumerate(filter_cols):
+                            with cols_f[i % len(cols_f)]:
+                                picked = st.multiselect(
+                                    fc.label,
+                                    fc.options,
+                                    key=f"guided_filter_{fc.column}",
+                                )
+                                if picked:
+                                    cohort_filters[fc.column] = picked
+                                    cohort_labels[fc.label] = picked
+                    else:
+                        st.caption("No se detectaron columnas típicas de filtro en este archivo.")
 
-Para PCA, SHAP, clustering o CFA usá **Análisis cuantitativo**. Para temas NMF o sentimiento en profundidad, **Análisis cualitativo**.
-                """
+                    df_cohort = apply_cohort_filters(df, cohort_filters)
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Total encuesta", len(df))
+                    m2.metric("Tras filtros", len(df_cohort))
+                    m3.metric("% de la muestra", f"{100 * len(df_cohort) / max(len(df), 1):.1f}%")
+
+                    st.markdown("##### 3. Tipo de análisis")
+                    a_opts = analysis_options_for_column(choice)
+                    a_labels = [t[0] for t in a_opts]
+                    a_map = {t[0]: t[1] for t in a_opts}
+                    sel_an = st.radio(
+                        "Análisis",
+                        a_labels,
+                        key="guided_analysis_pick",
+                        label_visibility="collapsed",
+                    )
+                    analysis_kind = a_map[sel_an]
+
+                    secondary_col: str | None = None
+                    value_pick: list[str] = []
+
+                    if analysis_kind == "crosstab":
+                        other_labels = [lb for lb in labels_sorted if label_to_choice[lb].column != choice.column]
+                        if not other_labels:
+                            st.warning("No hay otra columna para cruzar.")
+                        else:
+                            sel2 = st.selectbox(
+                                "Cruzar con",
+                                other_labels,
+                                key="guided_secondary_label",
+                            )
+                            secondary_col = label_to_choice[sel2].column
+
+                    if analysis_kind == "count_values":
+                        vals = (
+                            df_cohort[choice.column]
+                            .dropna()
+                            .astype(str)
+                            .str.strip()
+                            .replace({"nan": ""})
+                        )
+                        vals = vals[vals.astype(bool)]
+                        uniq = vals.value_counts().head(30).index.astype(str).tolist()
+                        value_pick = st.multiselect(
+                            "Contar quiénes respondieron (podés elegir varias)",
+                            uniq,
+                            key="guided_value_pick",
+                        )
+
+                    run_guided = st.button("Ver resultados", type="primary", key="guided_run")
+
+                    if run_guided:
+                        spec = GuidedSpec(
+                            primary_column=choice.column,
+                            analysis=analysis_kind,
+                            secondary_column=secondary_col,
+                            cohort_filters=cohort_labels,
+                            value_pick=value_pick,
+                        )
+                        g_res = run_guided_analysis(df, df_cohort, spec)
+                        sec_label = None
+                        if secondary_col:
+                            sec_label = next(
+                                (lb for lb, c in label_to_choice.items() if c.column == secondary_col),
+                                col_labels.get(secondary_col, secondary_col[:60]),
+                            )
+
+                        if g_res.ok and g_res.analysis == "count_values":
+                            st.metric("Personas que cumplen", g_res.n_result)
+                        elif g_res.ok and g_res.analysis == "freq":
+                            st.metric("Respuestas analizadas", g_res.n_result)
+
+                        for tname, tbl in g_res.tables.items():
+                            st.markdown(f"##### {tname.replace('_', ' ').title()}")
+                            st.dataframe(tbl, use_container_width=True, hide_index=True)
+                            if tname == "frecuencias" and not tbl.empty:
+                                fig = px.bar(
+                                    tbl.head(15),
+                                    x="categoría",
+                                    y="frecuencia",
+                                    title="Frecuencias (top 15)",
+                                )
+                                fig.update_layout(xaxis_tickangle=-35, height=420)
+                                st.plotly_chart(fig, use_container_width=True)
+
+                        _bloque_interpretacion_cuantitativa(
+                            interpret_guided(
+                                spec,
+                                g_res,
+                                col_labels=col_labels,
+                                primary_label=sel_label,
+                                secondary_label=sec_label,
+                            )
+                        )
+
+                        if g_res.tables:
+                            first_key = next(iter(g_res.tables))
+                            st.download_button(
+                                "Descargar tabla principal (CSV)",
+                                g_res.tables[first_key].to_csv(index=False).encode("utf-8"),
+                                file_name="consulta_guiada.csv",
+                                mime="text/csv",
+                            )
+
+            else:
+                st.markdown("##### Pregunta en lenguaje natural")
+                st.caption(
+                    "Experimental: el sistema intenta adivinar columnas y filtros. "
+                    "Para resultados exactos usá **modo guiado**."
+                )
+                question = st.text_area(
+                    "Tu pregunta",
+                    height=100,
+                    placeholder="Ej.: ¿Cuántos de Don Bosco usan IA frecuentemente y no trabajan?",
+                    key="survey_qa_question",
+                )
+                run_q = st.button("Analizar pregunta", type="primary", key="survey_qa_run")
+
+                if run_q and question.strip():
+                    plan = plan_question(question.strip(), df, profiles, use_llm=False)
+                    result = run_plan(df, plan, profiles)
+                    if plan.warnings:
+                        for w in plan.warnings:
+                            st.warning(w)
+                    if result.ok and result.intent == "count_filtered":
+                        c1, c2, c3 = st.columns(3)
+                        c1.metric("Casos que cumplen", result.n_match)
+                        c2.metric("Total", result.n_total)
+                        c3.metric("%", f"{result.metrics.get('pct', 0):.1f}%")
+                    for name, tbl in result.tables.items():
+                        if tbl is not None and not (hasattr(tbl, "empty") and tbl.empty):
+                            st.dataframe(tbl, use_container_width=True, hide_index=True)
+                    _bloque_interpretacion_cuantitativa(
+                        interpret_result(plan, result, df, col_labels=col_labels)
+                    )
+                elif run_q:
+                    st.info("Escribí una pregunta.")
+
+            st.caption(
+                "Análisis avanzados (PCA, SHAP, clustering, CFA): pestaña **Análisis cuantitativo**. "
+                "Temas y sentimiento en texto: **Análisis cualitativo**."
             )
 
     if "Resumen de ítems" in T_main:
