@@ -1,5 +1,8 @@
 .venv/
 venv/
+# Otros proyectos (no forman parte de Encuesta Clara)
+proveedor-minero-ia/
+extractor-actas-investigacion/
 __pycache__/
 *.pyc
 .DS_Store
