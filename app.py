@@ -24,6 +24,8 @@ from quant_advanced import (
     cronbach_encoding_diagnostics,
     crosstab_chi_square,
     crosstab_chi_square_smart,
+    format_contingency_table_for_display,
+    prepare_crosstab_for_display,
     cronbach_alpha,
     dbscan_profiles,
     detect_survey_ordinals_and_question_blocks,
@@ -73,6 +75,7 @@ from qualitative_deep import (
 from survey_intel import (
     ColumnProfile,
     SentimentModel,
+    add_total_count_row,
     build_column_label_map,
     classify_columns,
     explode_multiselect,
@@ -87,7 +90,10 @@ from survey_guided import (
     analysis_options_for_column,
     apply_cohort_filters,
     build_column_choices,
+    cohort_filter_scope_markdown,
+    crosstab_table_caption,
     discover_filter_columns,
+    short_choice_label,
     interpret_guided,
     run_guided_analysis,
     GuidedSpec,
@@ -174,6 +180,7 @@ _UI_WIDGET_KEYS = (
     "guided_analysis_pick",
     "guided_secondary_label",
     "guided_value_pick",
+    "guided_run_results",
     "desc_pick",
     "desc_multi",
     "chi_row",
@@ -514,101 +521,97 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     m1.metric("Total encuesta", len(df))
                     m2.metric("Tras filtros", len(df_cohort))
                     m3.metric("% de la muestra", f"{100 * len(df_cohort) / max(len(df), 1):.1f}%")
+                    st.markdown(
+                        cohort_filter_scope_markdown(
+                            filter_cols,
+                            cohort_labels,
+                            n_cohort=len(df_cohort),
+                            n_total=len(df),
+                        )
+                    )
 
                     if st.session_state.get("_guided_primary_col") != choice.column:
                         st.session_state.pop("guided_result_bundle", None)
+                        st.session_state.pop("guided_secondary_label", None)
                     st.session_state._guided_primary_col = choice.column
 
                     a_opts = analysis_options_for_column(choice)
                     a_labels = [t[0] for t in a_opts]
                     a_map = {t[0]: t[1] for t in a_opts}
 
-                    with st.form("guided_analysis_form", clear_on_submit=False):
-                        st.markdown("##### 3. Tipo de análisis")
-                        sel_an = st.radio(
-                            "Análisis",
-                            a_labels,
-                            key="guided_analysis_pick",
-                            label_visibility="collapsed",
+                    st.markdown("##### 3. Tipo de análisis")
+                    other_labels = [
+                        lb for lb in labels_sorted if label_to_choice[lb].column != choice.column
+                    ]
+
+                    sel_an = st.selectbox(
+                        "Tipo de análisis",
+                        a_labels,
+                        key="guided_analysis_pick",
+                        help="Si elegís cruce, usá el desplegable de abajo para la segunda pregunta.",
+                    )
+                    analysis_kind = a_map[sel_an]
+                    is_crosstab = analysis_kind == "crosstab"
+                    is_count = analysis_kind == "count_values"
+
+                    secondary_col: str | None = None
+                    value_pick: list[str] = []
+                    sec_label: str | None = None
+
+                    if is_crosstab and not other_labels:
+                        st.warning("No hay otra columna para cruzar.")
+                    if is_crosstab:
+                        st.info(
+                            "↓ Elegí la **segunda pregunta** en «Cruzar con» (tabla: filas = paso 1, columnas = paso 2)."
                         )
-                        analysis_kind = a_map[sel_an]
 
-                        secondary_col: str | None = None
-                        value_pick: list[str] = []
-                        sec_label: str | None = None
-                        run_guided = False
+                    sec_pick = st.selectbox(
+                        "Cruzar con (segunda pregunta)",
+                        options=other_labels if other_labels else ["(sin otras columnas)"],
+                        key="guided_secondary_label",
+                        disabled=not is_crosstab or not other_labels,
+                        help="Solo activo con «Cruce con otra pregunta (χ²)».",
+                    )
+                    if is_crosstab and other_labels and sec_pick in label_to_choice:
+                        sec_choice = label_to_choice[sec_pick]
+                        secondary_col = sec_choice.column
+                        sec_label = sec_pick
+                        with st.expander("Enunciado de la variable de cruce"):
+                            st.write(sec_choice.full_text or sec_choice.label)
 
-                        if analysis_kind == "crosstab":
-                            other_labels = [
-                                lb for lb in labels_sorted if label_to_choice[lb].column != choice.column
-                            ]
-                            if not other_labels:
-                                st.warning("No hay otra columna para cruzar.")
-                                run_guided = st.form_submit_button(
-                                    "Ver resultados",
-                                    type="primary",
-                                )
-                            else:
-                                col_opt, col_btn = st.columns([5, 1])
-                                with col_opt:
-                                    sel2 = st.selectbox(
-                                        "Cruzar con",
-                                        other_labels,
-                                        key="guided_secondary_label",
-                                    )
-                                    sec_choice = label_to_choice[sel2]
-                                    secondary_col = sec_choice.column
-                                    sec_label = sel2
-                                    with st.expander("Enunciado de la variable de cruce"):
-                                        st.write(sec_choice.full_text or sec_choice.label)
-                                with col_btn:
-                                    st.markdown('<div class="guided-form-actions">', unsafe_allow_html=True)
-                                    run_guided = st.form_submit_button(
-                                        "Ver resultados",
-                                        type="primary",
-                                        use_container_width=True,
-                                    )
-                                    st.markdown("</div>", unsafe_allow_html=True)
+                    vals = (
+                        df_cohort[choice.column]
+                        .dropna()
+                        .astype(str)
+                        .str.strip()
+                        .replace({"nan": ""})
+                    )
+                    vals = vals[vals.astype(bool)]
+                    uniq = vals.value_counts().head(30).index.astype(str).tolist()
+                    value_pick = st.multiselect(
+                        "Contar categorías (si elegiste «Contar categorías elegidas»)",
+                        options=uniq if uniq else ["(sin categorías)"],
+                        key="guided_value_pick",
+                        disabled=not is_count or not uniq,
+                    )
 
-                        elif analysis_kind == "count_values":
-                            vals = (
-                                df_cohort[choice.column]
-                                .dropna()
-                                .astype(str)
-                                .str.strip()
-                                .replace({"nan": ""})
+                    run_guided = st.button(
+                        "Ver resultados",
+                        type="primary",
+                        use_container_width=True,
+                        key="guided_run_results",
+                    )
+
+                    if run_guided:
+                        if is_count:
+                            value_pick = list(
+                                st.session_state.get("guided_value_pick", value_pick or [])
                             )
-                            vals = vals[vals.astype(bool)]
-                            uniq = vals.value_counts().head(30).index.astype(str).tolist()
-                            col_opt, col_btn = st.columns([5, 1])
-                            with col_opt:
-                                if not uniq:
-                                    st.caption("No hay categorías para contar en esta columna.")
-                                else:
-                                    value_pick = st.multiselect(
-                                        "Contar quiénes respondieron (podés elegir varias)",
-                                        uniq,
-                                        key="guided_value_pick",
-                                    )
-                            with col_btn:
-                                st.markdown('<div class="guided-form-actions">', unsafe_allow_html=True)
-                                run_guided = st.form_submit_button(
-                                    "Ver resultados",
-                                    type="primary",
-                                    use_container_width=True,
-                                )
-                                st.markdown("</div>", unsafe_allow_html=True)
+                        if is_crosstab and not secondary_col:
+                            st.warning("Elegí la pregunta con la que querés cruzar.")
+                        elif is_count and not value_pick:
+                            st.warning("Elegí al menos una categoría para contar.")
                         else:
-                            run_guided = st.form_submit_button(
-                                "Ver resultados",
-                                type="primary",
-                            )
-
-                        if run_guided:
-                            if analysis_kind == "count_values":
-                                value_pick = list(
-                                    st.session_state.get("guided_value_pick", value_pick or [])
-                                )
                             spec = GuidedSpec(
                                 primary_column=choice.column,
                                 analysis=analysis_kind,
@@ -627,6 +630,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 "spec": spec,
                                 "sel_label": sel_label,
                                 "sec_label": sec_label,
+                                "filter_cols": filter_cols,
                             }
 
                     st.markdown("---")
@@ -643,10 +647,19 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         g_res = bundle["g_res"]
                         spec = bundle["spec"]
                         sec_label = bundle.get("sec_label")
+                        result_filter_cols = bundle.get("filter_cols", filter_cols)
 
                         if not g_res.ok:
                             st.error(g_res.error or "No se pudo completar el análisis.")
                         else:
+                            st.markdown(
+                                cohort_filter_scope_markdown(
+                                    result_filter_cols,
+                                    spec.cohort_filters,
+                                    n_cohort=g_res.n_cohort,
+                                    n_total=g_res.n_total,
+                                )
+                            )
                             if g_res.analysis == "count_values":
                                 st.metric("Personas que cumplen", g_res.n_result)
                             elif g_res.analysis == "freq":
@@ -654,10 +667,40 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
                             for tname, tbl in g_res.tables.items():
                                 st.markdown(f"**{tname.replace('_', ' ').title()}**")
-                                st.dataframe(tbl, use_container_width=True, hide_index=True)
+                                if tname == "cruce":
+                                    row_cap = bundle.get("sel_label", sel_label)
+                                    col_cap = sec_label or spec.secondary_column or ""
+                                    ms_note = (g_res.metrics.get("chi2") or {}).get(
+                                        "multiselect_note"
+                                    )
+                                    st.caption(
+                                        crosstab_table_caption(
+                                            row_cap,
+                                            col_cap,
+                                            multiselect_note=ms_note,
+                                        )
+                                    )
+                                    row_col = (
+                                        f"Opción · {short_choice_label(row_cap, max_len=72)}"
+                                    )
+                                    show_tbl = prepare_crosstab_for_display(
+                                        tbl,
+                                        index_label=row_col,
+                                    )
+                                else:
+                                    show_tbl = tbl
+                                if tname == "cruce":
+                                    st.table(show_tbl)
+                                else:
+                                    st.dataframe(
+                                        show_tbl,
+                                        use_container_width=True,
+                                        hide_index=True,
+                                    )
                                 if tname == "frecuencias" and not tbl.empty:
+                                    ft_plot = tbl[tbl["categoría"].astype(str) != "TOTAL"]
                                     fig = px.bar(
-                                        tbl.head(15),
+                                        ft_plot.head(15),
                                         x="categoría",
                                         y="frecuencia",
                                         title="Frecuencias (top 15)",
@@ -672,14 +715,21 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     col_labels=col_labels,
                                     primary_label=bundle.get("sel_label", sel_label),
                                     secondary_label=sec_label,
+                                    filter_cols=result_filter_cols,
                                 )
                             )
 
                             if g_res.tables:
                                 first_key = next(iter(g_res.tables))
+                                dl_tbl = g_res.tables[first_key]
+                                if first_key == "cruce":
+                                    dl_tbl = prepare_crosstab_for_display(
+                                        g_res.tables[first_key],
+                                        index_label="Opción (pregunta principal)",
+                                    )
                                 st.download_button(
                                     "Descargar tabla principal (CSV)",
-                                    g_res.tables[first_key].to_csv(index=False).encode("utf-8"),
+                                    dl_tbl.to_csv(index=False).encode("utf-8"),
                                     file_name="consulta_guiada.csv",
                                     mime="text/csv",
                                     key="guided_download_csv",
@@ -714,7 +764,15 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         c3.metric("%", f"{result.metrics.get('pct', 0):.1f}%")
                     for name, tbl in result.tables.items():
                         if tbl is not None and not (hasattr(tbl, "empty") and tbl.empty):
-                            st.dataframe(tbl, use_container_width=True, hide_index=True)
+                            if name == "cruce":
+                                st.table(
+                                    prepare_crosstab_for_display(
+                                        tbl,
+                                        index_label="Opción (pregunta principal)",
+                                    )
+                                )
+                            else:
+                                st.dataframe(tbl, use_container_width=True, hide_index=True)
                     _bloque_interpretacion_cuantitativa(
                         interpret_result(plan, result, df, col_labels=col_labels)
                     )
@@ -905,8 +963,9 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         
                         st.markdown("#### Frecuencias y porcentajes")
                         st.dataframe(ft, use_container_width=True, hide_index=True)
+                        ft_plot = ft[ft["categoría"].astype(str) != "TOTAL"]
                         fig = px.bar(
-                            ft.head(20),
+                            ft_plot.head(20),
                             x="frecuencia",
                             y="categoría",
                             orientation="h",
@@ -964,7 +1023,21 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         out = crosstab_chi_square_smart(df_work, rcol, ccol)
                         if out.get("multiselect_note"):
                             st.info(out["multiselect_note"])
-                        st.dataframe(out["tabla"], use_container_width=True)
+                        row_cap = _fmt_analysis_col(rcol)
+                        col_cap = _fmt_analysis_col(ccol)
+                        st.caption(
+                            crosstab_table_caption(
+                                row_cap,
+                                col_cap,
+                                multiselect_note=out.get("multiselect_note"),
+                            )
+                        )
+                        st.table(
+                            prepare_crosstab_for_display(
+                                out["tabla"],
+                                index_label=f"Opción · {short_choice_label(row_cap, max_len=72)}",
+                            )
+                        )
                         st.write(
                             f"χ² = {out['chi2']:.3f}, gl = {out['gl']}, p = {out['p_valor']:.4f}, "
                             f"Cramér V = {out['cramers_v']:.3f}, n = {out['n']}"
@@ -1366,7 +1439,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 lbl, centers, inertia, _ = kmeans_profiles(Xf, k=k)
                                 st.metric("Inercia final", f"{inertia:,.1f}")
                                 st.dataframe(centers.round(2), use_container_width=True)
-                                vc = lbl.value_counts().sort_index().rename_axis("cluster").reset_index(name="n")
+                                vc = add_total_count_row(
+                                    lbl.value_counts()
+                                    .sort_index()
+                                    .rename_axis("cluster")
+                                    .reset_index(name="n"),
+                                    label_col="cluster",
+                                    value_col="n",
+                                )
                                 st.dataframe(vc, hide_index=True)
                                 with st.expander(
                                     "**Clúster 0 vs 1 vs 2:** qué significan y cómo nombrarlos",
@@ -1397,7 +1477,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 ms = st.slider("min_samples", 3, 20, 7)
                                 lbl, noise_rate, _ = dbscan_profiles(Xf, eps, ms)
                                 st.metric("Observaciones ruido (-1)", f"{noise_rate*100:.1f}%")
-                                st.dataframe(lbl.value_counts().rename_axis("cluster").reset_index(name="n"))
+                                st.dataframe(
+                                    add_total_count_row(
+                                        lbl.value_counts().rename_axis("cluster").reset_index(name="n"),
+                                        label_col="cluster",
+                                        value_col="n",
+                                    ),
+                                    hide_index=True,
+                                )
                                 _bloque_interpretacion_cuantitativa(
                                     clustering_explanatory(
                                         "DBSCAN",
@@ -1784,7 +1871,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         results = [lexicon_sentiment_es(t)[0] for t in filtered]
 
                     dist = pd.Series(results).value_counts().rename_axis("sentimiento").reset_index(name="n")
-                    dist["pct"] = (dist["n"] / dist["n"].sum() * 100).round(1)
+                    total_n = int(dist["n"].sum())
+                    dist["pct"] = (dist["n"] / total_n * 100).round(1) if total_n else 0.0
+                    dist = add_total_count_row(dist, label_col="sentimiento", value_col="n")
+                    dist.loc[dist["sentimiento"] == "TOTAL", "pct"] = 100.0
 
                     c_sent1, c_sent2 = st.columns(2)
                     with c_sent1:

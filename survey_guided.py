@@ -29,6 +29,15 @@ FILTER_SPECS: list[tuple[str, list[str]]] = [
     ("¿Trabaja actualmente?", ["trabajás", "trabajas actualmente"]),
 ]
 
+# (etiqueta del filtro, frase si están todas las opciones, prefijo si son algunas)
+_COHORT_FILTER_PHRASES: dict[str, tuple[str, str]] = {
+    "Unidad académica": ("Todas las unidades académicas", "Unidades académicas"),
+    "Año de carrera": ("Todos los años de la carrera", "Años de carrera"),
+    "Edad": ("Todas las edades", "Edades"),
+    "Género": ("Todos los géneros", "Género"),
+    "¿Trabaja actualmente?": ("Todas las respuestas sobre trabajo actual", "Trabajo actual"),
+}
+
 
 @dataclass
 class ColumnChoice:
@@ -184,6 +193,89 @@ def build_column_choices(df: pd.DataFrame, profiles: list[ColumnProfile]) -> lis
     return choices
 
 
+def _filter_column_by_label(filter_cols: list[FilterColumn], label: str) -> FilterColumn | None:
+    return next((fc for fc in filter_cols if fc.label == label), None)
+
+
+def cohort_filters_display_lines(
+    filter_cols: list[FilterColumn],
+    active: dict[str, list[str]],
+    *,
+    max_items: int = 8,
+) -> list[str]:
+    """
+    Texto legible por dimensión de filtro.
+    Si se eligieron todas las opciones del multiselect → frase tipo «Todas las unidades…».
+    """
+    lines: list[str] = []
+    for label, picked in active.items():
+        if not picked:
+            continue
+        fc = _filter_column_by_label(filter_cols, label)
+        all_phrase, partial_prefix = _COHORT_FILTER_PHRASES.get(
+            label, (f"Todas las categorías de {label}", label)
+        )
+        opts = list(fc.options) if fc else []
+        picked_clean = [str(v).strip() for v in picked if str(v).strip()]
+        if opts and set(picked_clean) >= set(opts) and len(picked_clean) >= len(opts):
+            lines.append(all_phrase)
+            continue
+        shown = picked_clean[:max_items]
+        tail = f" (+{len(picked_clean) - max_items} más)" if len(picked_clean) > max_items else ""
+        lines.append(f"{partial_prefix}: {', '.join(shown)}{tail}")
+    return lines
+
+
+def short_choice_label(label: str, *, max_len: int = 88) -> str:
+    """Quita prefijo «#n ·» del selector para leerlo en leyendas."""
+    s = str(label).strip()
+    if "·" in s:
+        s = s.split("·", 1)[1].strip()
+    return s[:max_len] + ("…" if len(s) > max_len else "")
+
+
+def crosstab_table_caption(
+    row_label: str,
+    col_label: str,
+    *,
+    multiselect_note: str | None = None,
+) -> str:
+    """
+    Explica la tabla de cruce: por qué hay varias filas y columnas (categorías de cada pregunta).
+    """
+    row = short_choice_label(row_label)
+    col = short_choice_label(col_label)
+    base = (
+        f"**Filas ({row}):** cada fila es **una opción de respuesta** a la pregunta elegida arriba "
+        f"(por eso ves tantas filas como categorías distintas tenga esa pregunta). "
+        f"**Columnas ({col}):** cada columna es **una opción** de la pregunta con la que cruzaste "
+        f"(p. ej. Nunca, A veces, Siempre…). "
+        f"**Cada número** en la tabla = **personas** de la muestra filtrada con esa combinación fila×columna. "
+        f"**Total fila** / **Total columna** suman conteos."
+    )
+    if multiselect_note:
+        base += f"\n\n{multiselect_note}"
+    return base
+
+
+def cohort_filter_scope_markdown(
+    filter_cols: list[FilterColumn],
+    active: dict[str, list[str]],
+    *,
+    n_cohort: int | None = None,
+    n_total: int | None = None,
+) -> str:
+    """Bloque corto para la UI: qué submuestra se está analizando."""
+    lines = cohort_filters_display_lines(filter_cols, active)
+    if not lines:
+        base = "**Muestra analizada:** toda la encuesta (sin filtros de cohorte)."
+    else:
+        base = "**Muestra analizada:** " + " · ".join(lines) + "."
+    if n_cohort is not None and n_total is not None:
+        base += f" (**{n_cohort}** de **{n_total}** encuestados)."
+    return base
+
+
 def apply_cohort_filters(df: pd.DataFrame, filters: dict[str, list[str]]) -> pd.DataFrame:
     out = df
     for col, values in filters.items():
@@ -288,9 +380,22 @@ def run_guided_analysis(
         metrics["values"] = spec.value_pick
         metrics["pct_cohort"] = round(100.0 * n_match / n_cohort, 2) if n_cohort else 0.0
         metrics["pct_total"] = round(100.0 * n_match / n_total, 2) if n_total else 0.0
-        tables["conteo"] = pd.DataFrame(
-            {"categoría": spec.value_pick, "n_en_muestra_filtrada": [int((norm == v).sum()) for v in spec.value_pick]}
-        )
+        conteo_rows = [
+            {"categoría": v, "n_en_muestra_filtrada": int((norm == v).sum())}
+            for v in spec.value_pick
+        ]
+        if len(spec.value_pick) > 1:
+            conteo_rows.append(
+                {
+                    "categoría": "TOTAL (personas con al menos una categoría elegida)",
+                    "n_en_muestra_filtrada": n_match,
+                }
+            )
+        else:
+            conteo_rows.append(
+                {"categoría": "TOTAL", "n_en_muestra_filtrada": n_match}
+            )
+        tables["conteo"] = pd.DataFrame(conteo_rows)
         return GuidedResult(
             ok=True,
             analysis=spec.analysis,
@@ -346,6 +451,7 @@ def interpret_guided(
     col_labels: dict[str, str],
     primary_label: str,
     secondary_label: str | None = None,
+    filter_cols: list[FilterColumn] | None = None,
 ) -> str:
     if not result.ok:
         return (
@@ -355,8 +461,19 @@ def interpret_guided(
 
     filt_txt = ""
     if spec.cohort_filters:
-        parts = [f"**{k}:** {', '.join(v[:3])}{'…' if len(v) > 3 else ''}" for k, v in spec.cohort_filters.items()]
-        filt_txt = "\n\n**Filtros de muestra activos:** " + "; ".join(parts) + f"\n\n**Casos en la cohorte:** {result.n_cohort} de {result.n_total} encuestados."
+        parts = (
+            cohort_filters_display_lines(filter_cols, spec.cohort_filters)
+            if filter_cols
+            else [
+                f"{k}: {', '.join(v[:4])}{'…' if len(v) > 4 else ''}"
+                for k, v in spec.cohort_filters.items()
+            ]
+        )
+        filt_txt = (
+            "\n\n**Filtros de muestra:** "
+            + " · ".join(parts)
+            + f"\n\n**Casos en la cohorte:** {result.n_cohort} de {result.n_total} encuestados."
+        )
 
     if result.analysis == "freq":
         desc = result.metrics.get("desc", {})

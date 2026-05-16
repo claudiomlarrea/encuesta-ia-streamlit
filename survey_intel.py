@@ -301,11 +301,43 @@ def explode_multiselect(series: pd.Series, sep: str = ",") -> pd.Series:
     return pd.Series(rows)
 
 
+def add_total_count_row(
+    df: pd.DataFrame,
+    *,
+    label_col: str | None = None,
+    value_col: str = "n",
+    total_label: str = "TOTAL",
+) -> pd.DataFrame:
+    """Añade fila TOTAL sumando la columna numérica (tablas categoría × conteo)."""
+    if df.empty or value_col not in df.columns:
+        return df
+    label = label_col or df.columns[0]
+    if label in df.columns and (df[label].astype(str) == total_label).any():
+        return df
+    total = int(pd.to_numeric(df[value_col], errors="coerce").fillna(0).sum())
+    return pd.concat(
+        [df, pd.DataFrame([{label: total_label, value_col: total}])],
+        ignore_index=True,
+    )
+
+
 def frequency_table(series: pd.Series, top_n: int = 25) -> pd.DataFrame:
     vc = series.dropna().astype(str).value_counts()
-    total = vc.sum()
+    total = int(vc.sum())
     out = vc.head(top_n).rename_axis("categoría").reset_index(name="frecuencia")
-    out["porcentaje"] = (out["frecuencia"] / total * 100).round(2)
+    if total > 0:
+        out["porcentaje"] = (out["frecuencia"] / total * 100).round(2)
+        out = pd.concat(
+            [
+                out,
+                pd.DataFrame(
+                    [{"categoría": "TOTAL", "frecuencia": total, "porcentaje": 100.0}]
+                ),
+            ],
+            ignore_index=True,
+        )
+    else:
+        out["porcentaje"] = 0.0
     return out
 
 

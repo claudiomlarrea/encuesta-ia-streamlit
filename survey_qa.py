@@ -17,7 +17,7 @@ from quant_advanced import (
     detect_best_ordinal,
 )
 from quant_summaries import chi_square_explanatory, descriptive_explanatory
-from survey_intel import ColumnProfile, _normalize_cell, is_timestamp_column
+from survey_intel import ColumnProfile, _normalize_cell, frequency_table, is_timestamp_column
 
 IntentKind = Literal[
     "count_filtered",
@@ -787,8 +787,16 @@ def run_plan(
             uc = _best_column(df, profiles, ["unidad academica", "unidad académica"])
             if uc and not any(f.column == uc for f in plan.filters):
                 sub = df.loc[mask, uc].astype(str).value_counts().head(8)
-                tables["desglose_unidad"] = sub.reset_index()
-                tables["desglose_unidad"].columns = ["unidad", "n"]
+                desglose = sub.reset_index()
+                desglose.columns = ["unidad", "n"]
+                total_n = int(desglose["n"].sum())
+                tables["desglose_unidad"] = pd.concat(
+                    [
+                        desglose,
+                        pd.DataFrame([{"unidad": "TOTAL", "n": total_n}]),
+                    ],
+                    ignore_index=True,
+                )
         return QueryResult(
             ok=True,
             intent=plan.intent,
@@ -802,9 +810,7 @@ def run_plan(
     if plan.intent == "describe" and plan.primary_column:
         col = plan.primary_column
         desc = descriptive_one_column(df[col])
-        tables["frecuencias"] = pd.DataFrame(
-            {"categoría": desc["valor_counts"].index, "n": desc["valor_counts"].values}
-        )
+        tables["frecuencias"] = frequency_table(df[col])
         metrics["desc"] = desc
         return QueryResult(
             ok=True,

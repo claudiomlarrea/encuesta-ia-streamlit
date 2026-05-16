@@ -11,6 +11,7 @@ import pandas as pd
 
 from quant_advanced import (
     GroupComparisonResult,
+    contingency_table_core,
     likert_matrix_key_to_original_column,
     modal_answer_text_by_ordinal_code,
 )
@@ -97,7 +98,10 @@ def descriptive_explanatory(desc: dict, ft: pd.DataFrame | None = None, top_cate
     if ft is not None and not ft.empty and "frecuencia" in ft.columns:
         cols = ft.columns
         pct_col = "porcentaje" if "porcentaje" in cols else None
-        top = ft.head(top_categories)
+        ft_body = ft
+        if "categoría" in ft.columns:
+            ft_body = ft[ft["categoría"].astype(str) != "TOTAL"]
+        top = ft_body.head(top_categories)
         bits = []
         for _, row in top.iterrows():
             cat = _trunc(row.get("categoría", row.iloc[0]), 52)
@@ -144,6 +148,8 @@ def chi_square_table_qualitative_reading(
         return ""
     if tabla.shape[0] < 1 or tabla.shape[1] < 1:
         return ""
+
+    tabla = contingency_table_core(tabla)
 
     rl = _trunc(row_dim, 88)
     cl = _trunc(col_dim, 88)

@@ -568,6 +568,94 @@ def is_multiselect_column(series: pd.Series, min_comma_rate: float = 0.28) -> bo
     return float(s.str.contains(",").mean()) >= min_comma_rate
 
 
+def add_table_margins(
+    tab: pd.DataFrame,
+    *,
+    row_total_label: str = "Total columna",
+    col_total_label: str = "Total fila",
+) -> pd.DataFrame:
+    """Añade fila y columna de totales a una tabla de contingencia."""
+    if tab.empty:
+        return tab
+    out = tab.copy()
+    if row_total_label in out.index and col_total_label in out.columns:
+        return out
+    out[col_total_label] = out.sum(axis=1)
+    out.loc[row_total_label] = out.sum(axis=0)
+    return out
+
+
+def contingency_table_core(
+    tab: pd.DataFrame,
+    *,
+    row_total_label: str = "Total columna",
+    col_total_label: str = "Total fila",
+) -> pd.DataFrame:
+    """Devuelve la tabla sin fila/columna de totales (para χ²)."""
+    if row_total_label in tab.index and col_total_label in tab.columns:
+        return tab.iloc[:-1, :-1]
+    return tab
+
+
+def _crosstab_category_label(val: Any) -> str:
+    """Etiqueta legible para filas/columnas (Sí/No si el Excel trae booleanos o 0/1)."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return "Sin respuesta"
+    if val is True:
+        return "Sí"
+    if val is False:
+        return "No"
+    if isinstance(val, (int, np.integer)) and not isinstance(val, bool):
+        if int(val) == 1:
+            return "Sí"
+        if int(val) == 0:
+            return "No"
+    s = str(val).strip()
+    if s in ("Total columna", "Total fila"):
+        return s
+    sl = s.lower()
+    if sl in ("sí", "si", "yes", "true", "1", "1.0", "verdadero"):
+        return "Sí"
+    if sl in ("no", "false", "0", "0.0", "falso"):
+        return "No"
+    return s
+
+
+def _normalize_crosstab_axes(tab: pd.DataFrame) -> pd.DataFrame:
+    out = tab.copy()
+    out.index = pd.Index([_crosstab_category_label(x) for x in out.index])
+    out.columns = pd.Index([_crosstab_category_label(c) for c in out.columns])
+    return out
+
+
+def prepare_crosstab_for_display(
+    tab: pd.DataFrame,
+    *,
+    index_label: str = "Opción (pregunta principal)",
+) -> pd.DataFrame:
+    """
+    Tabla plana para pantalla/CSV: primera columna = opciones de la pregunta del paso 1 (filas).
+    """
+    if tab.empty:
+        return tab
+    out = _normalize_crosstab_axes(tab)
+    row_col = (index_label or "Opción (pregunta principal)").strip()
+    out.index.name = row_col
+    flat = out.reset_index()
+    if flat.columns[0] != row_col:
+        flat = flat.rename(columns={flat.columns[0]: row_col})
+    return flat
+
+
+def format_contingency_table_for_display(
+    tab: pd.DataFrame,
+    *,
+    index_label: str = "Categoría (filas)",
+) -> pd.DataFrame:
+    """Alias de prepare_crosstab_for_display (compatibilidad)."""
+    return prepare_crosstab_for_display(tab, index_label=index_label)
+
+
 def crosstab_multiselect_aggregated(
     df: pd.DataFrame,
     group_col: str,
@@ -605,20 +693,22 @@ def crosstab_multiselect_aggregated(
         if rest.shape[1] > 0:
             tab["Otros (resto de ítems)"] = rest.sum(axis=1)
 
-    tab["Total fila"] = tab.sum(axis=1)
-    tab.loc["Total columna"] = tab.sum(axis=0)
-    return tab
+    return add_table_margins(tab)
 
 
 def crosstab_chi_square(df: pd.DataFrame, row: str, col: str) -> dict[str, Any]:
-    sub = df[[row, col]].dropna()
+    sub = df[[row, col]].dropna().copy()
+    sub[row] = sub[row].map(_crosstab_category_label)
+    sub[col] = sub[col].map(_crosstab_category_label)
     tab = pd.crosstab(sub[row], sub[col])
-    if tab.shape[0] < 2 or tab.shape[1] < 2:
+    tab = add_table_margins(tab)
+    core = contingency_table_core(tab)
+    if core.shape[0] < 2 or core.shape[1] < 2:
         chi2, p, dof, expected = np.nan, np.nan, 0, None
         v = np.nan
     else:
-        chi2, p, dof, expected = scipy_stats.chi2_contingency(tab)
-        v = cramers_v_from_table(tab.values)
+        chi2, p, dof, expected = scipy_stats.chi2_contingency(core)
+        v = cramers_v_from_table(core.values)
     return {
         "tabla": tab,
         "chi2": float(chi2) if chi2 == chi2 else np.nan,
@@ -662,7 +752,7 @@ def crosstab_chi_square_smart(
         tab = crosstab_multiselect_aggregated(
             df, group_col, ms_col, top_options=top_multiselect_options
         )
-        core = tab.iloc[:-1, :-1] if "Total columna" in tab.index and "Total fila" in tab.columns else tab
+        core = contingency_table_core(tab)
         if core.shape[0] >= 2 and core.shape[1] >= 2:
             chi2, p, dof, _expected = scipy_stats.chi2_contingency(core.values)
             v = cramers_v_from_table(core.values)
