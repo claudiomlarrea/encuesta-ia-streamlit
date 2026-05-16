@@ -199,6 +199,8 @@ def _clear_analysis_ui_state() -> None:
     """Restablece pestañas, módulos y widgets al cambiar o quitar la encuesta."""
     for key in _UI_WIDGET_KEYS:
         st.session_state.pop(key, None)
+    st.session_state.pop("guided_result_bundle", None)
+    st.session_state.pop("_guided_primary_col", None)
     for key in list(st.session_state.keys()):
         k = str(key)
         if k.startswith("guided_filter_") or k.startswith("pick_main_sections") or k.startswith(
@@ -513,106 +515,149 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     m2.metric("Tras filtros", len(df_cohort))
                     m3.metric("% de la muestra", f"{100 * len(df_cohort) / max(len(df), 1):.1f}%")
 
-                    st.markdown("##### 3. Tipo de análisis")
+                    if st.session_state.get("_guided_primary_col") != choice.column:
+                        st.session_state.pop("guided_result_bundle", None)
+                    st.session_state._guided_primary_col = choice.column
+
                     a_opts = analysis_options_for_column(choice)
                     a_labels = [t[0] for t in a_opts]
                     a_map = {t[0]: t[1] for t in a_opts}
-                    sel_an = st.radio(
-                        "Análisis",
-                        a_labels,
-                        key="guided_analysis_pick",
-                        label_visibility="collapsed",
-                    )
-                    analysis_kind = a_map[sel_an]
 
-                    secondary_col: str | None = None
-                    value_pick: list[str] = []
-
-                    if analysis_kind == "crosstab":
-                        other_labels = [lb for lb in labels_sorted if label_to_choice[lb].column != choice.column]
-                        if not other_labels:
-                            st.warning("No hay otra columna para cruzar.")
-                        else:
-                            sel2 = st.selectbox(
-                                "Cruzar con",
-                                other_labels,
-                                key="guided_secondary_label",
-                            )
-                            sec_choice = label_to_choice[sel2]
-                            st.caption("Enunciado completo (variable de cruce)")
-                            st.write(sec_choice.full_text or sec_choice.label)
-                            secondary_col = sec_choice.column
-
-                    if analysis_kind == "count_values":
-                        vals = (
-                            df_cohort[choice.column]
-                            .dropna()
-                            .astype(str)
-                            .str.strip()
-                            .replace({"nan": ""})
+                    with st.form("guided_analysis_form", clear_on_submit=False):
+                        st.markdown("##### 3. Tipo de análisis")
+                        sel_an = st.radio(
+                            "Análisis",
+                            a_labels,
+                            key="guided_analysis_pick",
+                            label_visibility="collapsed",
                         )
-                        vals = vals[vals.astype(bool)]
-                        uniq = vals.value_counts().head(30).index.astype(str).tolist()
-                        value_pick = st.multiselect(
-                            "Contar quiénes respondieron (podés elegir varias)",
-                            uniq,
-                            key="guided_value_pick",
-                        )
+                        analysis_kind = a_map[sel_an]
 
-                    run_guided = st.button("Ver resultados", type="primary", key="guided_run")
+                        secondary_col: str | None = None
+                        value_pick: list[str] = []
+                        sec_label: str | None = None
 
-                    if run_guided:
-                        spec = GuidedSpec(
-                            primary_column=choice.column,
-                            analysis=analysis_kind,
-                            secondary_column=secondary_col,
-                            cohort_filters=cohort_labels,
-                            value_pick=value_pick,
-                        )
-                        g_res = run_guided_analysis(df, df_cohort, spec)
-                        sec_label = None
-                        if secondary_col:
-                            sec_label = next(
-                                (lb for lb, c in label_to_choice.items() if c.column == secondary_col),
-                                col_labels.get(secondary_col, secondary_col[:60]),
-                            )
-
-                        if g_res.ok and g_res.analysis == "count_values":
-                            st.metric("Personas que cumplen", g_res.n_result)
-                        elif g_res.ok and g_res.analysis == "freq":
-                            st.metric("Respuestas analizadas", g_res.n_result)
-
-                        for tname, tbl in g_res.tables.items():
-                            st.markdown(f"##### {tname.replace('_', ' ').title()}")
-                            st.dataframe(tbl, use_container_width=True, hide_index=True)
-                            if tname == "frecuencias" and not tbl.empty:
-                                fig = px.bar(
-                                    tbl.head(15),
-                                    x="categoría",
-                                    y="frecuencia",
-                                    title="Frecuencias (top 15)",
+                        if analysis_kind == "crosstab":
+                            other_labels = [
+                                lb for lb in labels_sorted if label_to_choice[lb].column != choice.column
+                            ]
+                            if not other_labels:
+                                st.warning("No hay otra columna para cruzar.")
+                            else:
+                                sel2 = st.selectbox(
+                                    "Cruzar con",
+                                    other_labels,
+                                    key="guided_secondary_label",
                                 )
-                                fig.update_layout(xaxis_tickangle=-35, height=420)
-                                st.plotly_chart(apply_plotly_style(fig), use_container_width=True)
+                                sec_choice = label_to_choice[sel2]
+                                secondary_col = sec_choice.column
+                                sec_label = sel2
+                                with st.expander("Enunciado de la variable de cruce"):
+                                    st.write(sec_choice.full_text or sec_choice.label)
 
-                        _bloque_interpretacion_cuantitativa(
-                            interpret_guided(
-                                spec,
-                                g_res,
-                                col_labels=col_labels,
-                                primary_label=sel_label,
-                                secondary_label=sec_label,
+                        elif analysis_kind == "count_values":
+                            vals = (
+                                df_cohort[choice.column]
+                                .dropna()
+                                .astype(str)
+                                .str.strip()
+                                .replace({"nan": ""})
                             )
+                            vals = vals[vals.astype(bool)]
+                            uniq = vals.value_counts().head(30).index.astype(str).tolist()
+                            if not uniq:
+                                st.caption("No hay categorías para contar en esta columna.")
+                            else:
+                                value_pick = st.multiselect(
+                                    "Contar quiénes respondieron (podés elegir varias)",
+                                    uniq,
+                                    key="guided_value_pick",
+                                )
+
+                        run_guided = st.form_submit_button(
+                            "Ver resultados",
+                            type="primary",
+                            use_container_width=False,
                         )
 
-                        if g_res.tables:
-                            first_key = next(iter(g_res.tables))
-                            st.download_button(
-                                "Descargar tabla principal (CSV)",
-                                g_res.tables[first_key].to_csv(index=False).encode("utf-8"),
-                                file_name="consulta_guiada.csv",
-                                mime="text/csv",
+                        if run_guided:
+                            spec = GuidedSpec(
+                                primary_column=choice.column,
+                                analysis=analysis_kind,
+                                secondary_column=secondary_col,
+                                cohort_filters=cohort_labels,
+                                value_pick=value_pick,
                             )
+                            g_res = run_guided_analysis(df, df_cohort, spec)
+                            if secondary_col and not sec_label:
+                                sec_label = next(
+                                    (lb for lb, c in label_to_choice.items() if c.column == secondary_col),
+                                    col_labels.get(secondary_col, secondary_col[:60]),
+                                )
+                            st.session_state.guided_result_bundle = {
+                                "g_res": g_res,
+                                "spec": spec,
+                                "sel_label": sel_label,
+                                "sec_label": sec_label,
+                            }
+
+                    st.markdown("---")
+                    st.markdown('<div class="guided-results-block">', unsafe_allow_html=True)
+                    st.markdown("##### Resultados")
+
+                    bundle = st.session_state.get("guided_result_bundle")
+                    if bundle is None:
+                        st.caption(
+                            "Elegí el tipo de análisis y pulsá **Ver resultados**. "
+                            "Las tablas aparecen aquí abajo, sin tapar los controles."
+                        )
+                    else:
+                        g_res = bundle["g_res"]
+                        spec = bundle["spec"]
+                        sec_label = bundle.get("sec_label")
+
+                        if not g_res.ok:
+                            st.error(g_res.error or "No se pudo completar el análisis.")
+                        else:
+                            if g_res.analysis == "count_values":
+                                st.metric("Personas que cumplen", g_res.n_result)
+                            elif g_res.analysis == "freq":
+                                st.metric("Respuestas analizadas", g_res.n_result)
+
+                            for tname, tbl in g_res.tables.items():
+                                st.markdown(f"**{tname.replace('_', ' ').title()}**")
+                                st.dataframe(tbl, use_container_width=True, hide_index=True)
+                                if tname == "frecuencias" and not tbl.empty:
+                                    fig = px.bar(
+                                        tbl.head(15),
+                                        x="categoría",
+                                        y="frecuencia",
+                                        title="Frecuencias (top 15)",
+                                    )
+                                    fig.update_layout(xaxis_tickangle=-35, height=420)
+                                    st.plotly_chart(apply_plotly_style(fig), use_container_width=True)
+
+                            _bloque_interpretacion_cuantitativa(
+                                interpret_guided(
+                                    spec,
+                                    g_res,
+                                    col_labels=col_labels,
+                                    primary_label=bundle.get("sel_label", sel_label),
+                                    secondary_label=sec_label,
+                                )
+                            )
+
+                            if g_res.tables:
+                                first_key = next(iter(g_res.tables))
+                                st.download_button(
+                                    "Descargar tabla principal (CSV)",
+                                    g_res.tables[first_key].to_csv(index=False).encode("utf-8"),
+                                    file_name="consulta_guiada.csv",
+                                    mime="text/csv",
+                                    key="guided_download_csv",
+                                )
+
+                    st.markdown("</div>", unsafe_allow_html=True)
 
             else:
                 st.markdown("##### Pregunta en lenguaje natural")
