@@ -1,5 +1,5 @@
 """
-Panel Streamlit: encuestas Excel → clasificación de ítems, cuantitativo y cualitativo.
+Encuesta Clara — panel Streamlit: Excel de encuestas → cuantitativo y cualitativo.
 """
 from __future__ import annotations
 
@@ -94,8 +94,10 @@ from survey_guided import (
 )
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
 
+APP_NAME = "Encuesta Clara"
+
 st.set_page_config(
-    page_title="Análisis de encuesta",
+    page_title=APP_NAME,
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -202,10 +204,10 @@ def main() -> None:
         st.session_state.loaded_df = None
         st.session_state.loaded_name = None
 
-    st.title("Encuestas — estructura, cuantitativo y cualitativo")
+    st.title(APP_NAME)
     st.caption(
-        "Detecta preguntas estructuradas vs abiertas, resume el cuantitativo y "
-        "explora temas y sentimiento en texto libre (español)."
+        "Del Excel de Google Forms a tablas, cruces y temas del texto libre. "
+        "Clasifica ítems estructurados y abiertos; análisis cuantitativo y cualitativo en español."
     )
 
     with st.sidebar:

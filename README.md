@@ -1,6 +1,6 @@
-# Encuesta IA — panel Streamlit
+# Encuesta Clara
 
-Carga respuestas en Excel (formularios tipo Google Forms), clasifica ítems en **estructurados** vs **abiertos** y ejecuta un bloque amplio de **cuantitativo**: descriptivos, cruces con χ² y Cramér V, pruebas (t Welch, Mann–Whitney, ANOVA, Kruskal–Wallis), Alfa de Cronbach, PCA/AFE con Varimax, K‑means / DBSCAN / jerárquico, modelos (logística, árboles, Random Forest, XGBoost) con **SHAP**, CFA simplificado con **semopy**. Incluye además temas (**NMF**) y **sentimiento** en español (RoBERTuito o léxico de respaldo).
+Panel Streamlit para encuestas: carga respuestas en Excel (formularios tipo Google Forms), clasifica ítems en **estructurados** vs **abiertos** y ejecuta un bloque amplio de **cuantitativo**: descriptivos, cruces con χ² y Cramér V, pruebas (t Welch, Mann–Whitney, ANOVA, Kruskal–Wallis), Alfa de Cronbach, PCA/AFE con Varimax, K‑means / DBSCAN / jerárquico, modelos (logística, árboles, Random Forest, XGBoost) con **SHAP**, CFA simplificado con **semopy**. Incluye además temas (**NMF**) y **sentimiento** en español (RoBERTuito o léxico de respaldo).
 
 ## Streamlit Cloud
 
