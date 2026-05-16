@@ -93,9 +93,7 @@ def choice_label(column_name: str, position: int, peer_columns: list[str]) -> st
         else:
             tag = s
         if len(tag) < 6 and len(s) > 50:
-            tag = "…" + s[-min(75, len(s)) :]
-    if len(tag) > 105:
-        tag = tag[:102] + "…"
+            tag = s
     return f"{position}. {tag}"
 
 

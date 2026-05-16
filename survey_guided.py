@@ -3,16 +3,18 @@ Modo guiado: elegir pregunta del cuestionario, filtros y tipo de análisis sin l
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
 
 from quant_advanced import (
+    bracket_sub_item_label,
     crosstab_chi_square_smart,
     descriptive_one_column,
     detect_survey_ordinals_and_question_blocks,
-    ellipsis_text,
+    questionnaire_parent_stem,
 )
 from quant_summaries import chi_square_explanatory, descriptive_explanatory
 from survey_intel import ColumnProfile, frequency_table, is_timestamp_column
@@ -36,6 +38,7 @@ class ColumnChoice:
     kind: str
     subtype: str
     n_valid: int
+    full_text: str = ""
 
 
 @dataclass
@@ -64,6 +67,17 @@ class GuidedResult:
     tables: dict[str, pd.DataFrame]
     metrics: dict[str, Any]
     error: str | None = None
+
+
+def _normalize_question_text(text: str) -> str:
+    return re.sub(r"\s+", " ", str(text).strip().replace("\n", " "))
+
+
+def _full_item_text(column_name: str) -> str:
+    sub = bracket_sub_item_label(column_name)
+    if sub:
+        return _normalize_question_text(sub)
+    return _normalize_question_text(questionnaire_parent_stem(column_name))
 
 
 def _column_score(col: str, hints: list[str]) -> float:
@@ -105,46 +119,67 @@ def discover_filter_columns(df: pd.DataFrame) -> list[FilterColumn]:
 def build_column_choices(df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[ColumnChoice]:
     prof_map = {p.name: p for p in profiles}
     detail, _blocks = detect_survey_ordinals_and_question_blocks(df)
-    if detail.empty or "_columna_interna" not in detail.columns:
-        choices: list[ColumnChoice] = []
-        for c in df.columns:
-            if is_timestamp_column(c):
-                continue
-            p = prof_map.get(str(c))
-            choices.append(
-                ColumnChoice(
-                    label=str(c)[:100],
-                    column=str(c),
-                    block_id=0,
-                    kind=p.kind if p else "estructurada",
-                    subtype=p.subtype if p else "",
-                    n_valid=int(df[c].notna().sum()),
-                )
-            )
-        return choices
+    seen_labels: dict[str, int] = {}
 
-    choices = []
-    for _, row in detail.iterrows():
-        col = str(row["_columna_interna"])
-        if col not in df.columns:
-            continue
-        p = prof_map.get(col)
-        sub = str(row.get("subítem", "") or "")
-        blk = int(row.get("#_bloque", 0))
-        if sub and sub != "(única columna / sin [])":
-            short = ellipsis_text(sub, 72)
+    def _append_choice(
+        choices: list[ColumnChoice],
+        col: str,
+        blk: int,
+        item_n: int,
+        kind: str,
+        subtype: str,
+    ) -> None:
+        full = _full_item_text(col)
+        label = f"#{blk} · {full}" if blk else full
+        if label in seen_labels:
+            seen_labels[label] += 1
+            label = f"{label} (ítem {item_n})"
         else:
-            short = ellipsis_text(str(row.get("enunciado_pregunta_abbr", col)), 72)
-        label = f"#{blk} · {short}"
+            seen_labels[label] = 1
         choices.append(
             ColumnChoice(
                 label=label,
                 column=col,
                 block_id=blk,
-                kind=p.kind if p else "estructurada",
-                subtype=p.subtype if p else str(row.get("esquema_detectado", "")),
+                kind=kind,
+                subtype=subtype,
                 n_valid=int(df[col].notna().sum()),
+                full_text=full,
             )
+        )
+
+    if detail.empty or "_columna_interna" not in detail.columns:
+        choices: list[ColumnChoice] = []
+        for i, c in enumerate(df.columns):
+            if is_timestamp_column(c):
+                continue
+            col = str(c)
+            p = prof_map.get(col)
+            _append_choice(
+                choices,
+                col,
+                0,
+                i + 1,
+                p.kind if p else "estructurada",
+                p.subtype if p else "",
+            )
+        return choices
+
+    choices: list[ColumnChoice] = []
+    for _, row in detail.iterrows():
+        col = str(row["_columna_interna"])
+        if col not in df.columns:
+            continue
+        p = prof_map.get(col)
+        blk = int(row.get("#_bloque", 0))
+        item_n = int(row.get("ítem_en_el_bloque", 1))
+        _append_choice(
+            choices,
+            col,
+            blk,
+            item_n,
+            p.kind if p else "estructurada",
+            p.subtype if p else str(row.get("esquema_detectado", "")),
         )
     return choices
 

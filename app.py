@@ -378,9 +378,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         labels_sorted,
                         format_func=lambda x: x,
                         key="guided_primary_label",
-                        help="Listado por número de bloque (#) y texto del ítem o enunciado.",
+                        help="Listado por número de bloque (#) y enunciado completo del ítem.",
                     )
                     choice = label_to_choice[sel_label]
+                    st.caption("Enunciado completo")
+                    st.write(choice.full_text or choice.label)
                     ic1, ic2, ic3 = st.columns(3)
                     ic1.caption(f"Tipo: **{choice.kind}** · {choice.subtype[:48]}")
                     ic2.caption(f"Respuestas válidas: **{choice.n_valid}**")
@@ -438,7 +440,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 other_labels,
                                 key="guided_secondary_label",
                             )
-                            secondary_col = label_to_choice[sel2].column
+                            sec_choice = label_to_choice[sel2]
+                            st.caption("Enunciado completo (variable de cruce)")
+                            st.write(sec_choice.full_text or sec_choice.label)
+                            secondary_col = sec_choice.column
 
                     if analysis_kind == "count_values":
                         vals = (
