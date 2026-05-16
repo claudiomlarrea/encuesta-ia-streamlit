@@ -13,7 +13,7 @@ import streamlit as st
 
 from ui_theme import GREEN, GREEN_DARK
 
-FEEDBACK_TO = "obserbatorioia@uccuyo.edu.ar"
+FEEDBACK_TO = "observatorioia@uccuyo.edu.ar"
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
