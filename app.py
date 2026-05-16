@@ -165,6 +165,55 @@ QUANT_MODULE_ORDER = [
     "9. Notas metodológicas",
 ]
 
+_UI_WIDGET_KEYS = (
+    "pick_main_sections",
+    "pick_quant_modules",
+    "survey_qa_mode",
+    "survey_qa_question",
+    "guided_primary_label",
+    "guided_analysis_pick",
+    "guided_secondary_label",
+    "guided_value_pick",
+    "desc_pick",
+    "desc_multi",
+    "chi_row",
+    "chi_col",
+    "sig_y",
+    "sig_g",
+    "pca_items",
+    "lav_lat",
+    "slider_pca_dims",
+    "slider_efa_factors",
+    "clust_feat",
+    "tgt",
+    "pred_feats",
+    "cfa_items",
+    "inverted_protocol_items",
+    "date_filter_col",
+    "cmp_from",
+    "cmp_to",
+)
+
+
+def _clear_analysis_ui_state() -> None:
+    """Restablece pestañas, módulos y widgets al cambiar o quitar la encuesta."""
+    for key in _UI_WIDGET_KEYS:
+        st.session_state.pop(key, None)
+    for key in list(st.session_state.keys()):
+        if str(key).startswith("guided_filter_"):
+            st.session_state.pop(key, None)
+
+
+def _bind_ui_to_dataset(dataset_name: str | None) -> None:
+    """Si cambió el archivo cargado, vuelve pestañas y módulos al estado inicial."""
+    token = dataset_name or ""
+    prev = st.session_state.get("_ui_bound_to")
+    if prev == token:
+        return
+    if prev is not None:
+        _clear_analysis_ui_state()
+    st.session_state._ui_bound_to = token
+
 
 @st.cache_resource(show_spinner=True)
 def _load_sentiment_pipeline():
@@ -237,22 +286,8 @@ def main() -> None:
         )
         st.caption(
             "**Nube:** el archivo tiene que subirse cada vez que cambiás de dispositivo o si reiniciás; "
-            "al cargar, los datos quedan en esta sesión hasta que pulses «Quitar archivo»."
-        )
-
-        main_sections = st.multiselect(
-            "Pestañas del panel que querés ver",
-            MAIN_TABS_ORDER,
-            default=list(MAIN_TABS_ORDER),
-            key="pick_main_sections",
-            help="Ocultá lo que no uses para ir directo a lo que necesitás.",
-        )
-        quant_modules = st.multiselect(
-            "Módulos dentro de «Análisis cuantitativo»",
-            QUANT_MODULE_ORDER,
-            default=list(QUANT_MODULE_ORDER),
-            key="pick_quant_modules",
-            help="Mostrá sólo los análisis que quieras hacer ahora (menos pestañas = más claro).",
+            "al cargar, los datos quedan en esta sesión hasta que pulsás «Quitar archivo». "
+            "Al **cambiar de encuesta**, las pestañas y módulos vuelven a mostrarse todos."
         )
 
         toggle_hf = st.toggle(
@@ -306,6 +341,24 @@ def main() -> None:
         )
         return
 
+    _bind_ui_to_dataset(st.session_state.loaded_name)
+
+    with st.sidebar:
+        main_sections = st.multiselect(
+            "Pestañas del panel que querés ver",
+            MAIN_TABS_ORDER,
+            default=list(MAIN_TABS_ORDER),
+            key="pick_main_sections",
+            help="Ocultá lo que no uses para ir directo a lo que necesitás.",
+        )
+        quant_modules = st.multiselect(
+            "Módulos dentro de «Análisis cuantitativo»",
+            QUANT_MODULE_ORDER,
+            default=list(QUANT_MODULE_ORDER),
+            key="pick_quant_modules",
+            help="Mostrá sólo los análisis que quieras hacer ahora (menos pestañas = más claro).",
+        )
+
     if st.session_state.loaded_df is None:
         st.info(
             "**Subí el archivo** con el botón «Browse files» en la barra lateral. "
@@ -335,6 +388,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
         if st.button("Quitar archivo y reiniciar sesión", type="secondary"):
             st.session_state.loaded_df = None
             st.session_state.loaded_name = None
+            st.session_state.pop("_ui_bound_to", None)
+            _clear_analysis_ui_state()
             st.rerun()
 
     profiles = classify_columns(df)

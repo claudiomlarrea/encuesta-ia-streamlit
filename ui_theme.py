@@ -1,7 +1,6 @@
 """Estética Encuesta Clara alineada al manual UCCuyo y al Observatorio de IA."""
 from __future__ import annotations
 
-import base64
 import html
 from pathlib import Path
 
@@ -31,14 +30,6 @@ OBSERVATORIO_NAME = "Observatorio de Inteligencia Artificial"
 INSTITUTION_NAME = "Universidad Católica de Cuyo"
 
 
-def _logo_data_uri() -> str | None:
-    if not LOGO_PATH.is_file():
-        return None
-    raw = LOGO_PATH.read_bytes()
-    b64 = base64.b64encode(raw).decode("ascii")
-    return f"data:image/png;base64,{b64}"
-
-
 def inject_theme() -> None:
     st.markdown(
         f"""
@@ -49,37 +40,39 @@ def inject_theme() -> None:
             font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
         }}
 
-        .block-container {{
+        [data-testid="stMain"] .block-container {{
             padding-top: 0.85rem;
             padding-bottom: 2.5rem;
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
             max-width: 1180px;
         }}
 
-        .ec-institutional {{
-            display: flex;
-            align-items: center;
-            gap: 1.1rem;
-            padding: 0.85rem 1rem 1rem;
-            margin-bottom: 0.75rem;
+        .ec-institutional-wrap {{
             border-bottom: 3px solid {GREEN};
-            background: {SURFACE};
+            margin-bottom: 0.75rem;
+            padding-bottom: 0.65rem;
         }}
-        .ec-institutional img {{
-            width: 88px;
-            height: 88px;
-            object-fit: contain;
-            flex-shrink: 0;
+        .ec-institutional-wrap [data-testid="column"]:first-child {{
+            min-width: 100px;
+            max-width: 110px;
         }}
-        .ec-institutional h2 {{
-            margin: 0;
+        .ec-institutional-wrap [data-testid="stImage"] img {{
+            max-width: 96px;
+            width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }}
+        .ec-institutional-title {{
+            margin: 0.15rem 0 0;
             font-size: 1.22rem;
             font-weight: 700;
             color: {GREEN};
             line-height: 1.25;
-            letter-spacing: 0.01em;
         }}
-        .ec-institutional .ec-uccuyo {{
-            margin: 0.2rem 0 0;
+        .ec-institutional-sub {{
+            margin: 0.25rem 0 0;
             font-size: 0.88rem;
             font-weight: 600;
             color: {TEXT_MUTED};
@@ -198,25 +191,18 @@ def inject_theme() -> None:
 
 def render_institutional_header() -> None:
     """Cabecera: logo y nombre del Observatorio de IA — UCCuyo."""
-    logo_uri = _logo_data_uri()
-    name = html.escape(OBSERVATORIO_NAME)
-    inst = html.escape(INSTITUTION_NAME)
-    if logo_uri:
-        logo_html = f'<img src="{logo_uri}" alt="Logo {name}" />'
-    else:
-        logo_html = ""
-    st.markdown(
-        f"""
-        <div class="ec-institutional">
-            {logo_html}
-            <div>
-                <h2>{name}</h2>
-                <p class="ec-uccuyo">{inst}</p>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="ec-institutional-wrap">', unsafe_allow_html=True)
+    col_logo, col_text = st.columns([1, 5], gap="small")
+    with col_logo:
+        if LOGO_PATH.is_file():
+            st.image(str(LOGO_PATH), width=96)
+    with col_text:
+        st.markdown(
+            f'<p class="ec-institutional-title">{html.escape(OBSERVATORIO_NAME)}</p>'
+            f'<p class="ec-institutional-sub">{html.escape(INSTITUTION_NAME)}</p>',
+            unsafe_allow_html=True,
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_brand_header(app_name: str, subtitle: str) -> None:
