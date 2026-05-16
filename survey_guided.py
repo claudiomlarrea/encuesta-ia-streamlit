@@ -11,6 +11,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from quant_advanced import (
+    GroupComparisonResult,
     bracket_sub_item_label,
     crosstab_chi_square_smart,
     descriptive_one_column,
@@ -362,6 +363,104 @@ def build_guided_report_csv(
     w(_csv_row("4. Tabla de resultados"))
     w("\n")
     show.to_csv(buf, index=False, lineterminator="\n")
+
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+def build_significance_report_csv(
+    *,
+    y_label: str,
+    g_label: str,
+    ordinal_scheme: str,
+    n_pairs: int,
+    n_work: int,
+    n_dataset: int,
+    res: GroupComparisonResult,
+    sample: pd.DataFrame,
+    inverted: bool = False,
+) -> bytes:
+    """CSV: variables, tamaños de grupo, resumen descriptivo y pruebas (Welch / MW / ANOVA / K-W)."""
+    buf = io.StringIO()
+    w = buf.write
+
+    w(_csv_row("Encuesta Clara — Informe prueba de significancia"))
+    w("\n")
+    w(_csv_row("1. Variable respuesta (ordinal)", y_label))
+    w(_csv_row("2. Variable de agrupación", g_label))
+    w(_csv_row("Esquema ordinal inferido", ordinal_scheme.replace("\n", " ")[:500]))
+    if inverted:
+        w(_csv_row("", "Escala invertida (ítem marcado en protocolo inverso)"))
+    w(
+        _csv_row(
+            "Casos analizados",
+            f"{n_pairs} filas válidas (respuesta + grupo) · submuestra {n_work} · encuesta {n_dataset}",
+        )
+    )
+    w(_csv_row("Número de grupos (k)", res.n_groups))
+    if res.message:
+        w(_csv_row("Nota", res.message))
+    w("\n")
+
+    w(_csv_row("3. Tamaños de grupo"))
+    w("\n")
+    sizes_df = pd.DataFrame(
+        [{"Grupo": k, "n": v} for k, v in res.group_sizes.items()]
+    )
+    sizes_df.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    w(_csv_row("4. Resumen por grupo (escala ordinal codificada)"))
+    w("\n")
+    desc = (
+        sample.groupby("g", dropna=False)["y"]
+        .agg(["count", "mean", "median", "std"])
+        .round(3)
+        .reset_index()
+    )
+    desc.columns = ["Grupo", "n", "Media ordinal", "Mediana", "Desv. típica"]
+    desc.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    w(_csv_row("5. Pruebas estadísticas"))
+    w("\n")
+    test_rows: list[dict[str, Any]] = []
+    if res.n_groups == 2:
+        if res.t_stat is not None and res.t_p is not None:
+            test_rows.append(
+                {
+                    "Prueba": "t de Student (Welch)",
+                    "Estadístico": round(res.t_stat, 4),
+                    "p_valor": round(res.t_p, 6),
+                }
+            )
+        if res.mw_U is not None and res.mw_p is not None:
+            test_rows.append(
+                {
+                    "Prueba": "Mann–Whitney U",
+                    "Estadístico": round(res.mw_U, 4),
+                    "p_valor": round(res.mw_p, 6),
+                }
+            )
+    if res.anova_F is not None and res.anova_p is not None:
+        test_rows.append(
+            {
+                "Prueba": "ANOVA",
+                "Estadístico": round(res.anova_F, 4),
+                "p_valor": round(res.anova_p, 6),
+            }
+        )
+    if res.kruskal_H is not None and res.kruskal_p is not None:
+        test_rows.append(
+            {
+                "Prueba": "Kruskal–Wallis",
+                "Estadístico": round(res.kruskal_H, 4),
+                "p_valor": round(res.kruskal_p, 6),
+            }
+        )
+    if test_rows:
+        pd.DataFrame(test_rows).to_csv(buf, index=False, lineterminator="\n")
+    else:
+        w(_csv_row("", "No hay pruebas disponibles con los datos actuales."))
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 

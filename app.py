@@ -91,6 +91,7 @@ from survey_guided import (
     apply_cohort_filters,
     build_column_choices,
     build_guided_report_csv,
+    build_significance_report_csv,
     cohort_filter_scope_markdown,
     crosstab_table_caption,
     discover_filter_columns,
@@ -182,6 +183,7 @@ _UI_WIDGET_KEYS = (
     "guided_secondary_label",
     "guided_value_pick",
     "guided_run_results",
+    "sig_test_download_csv",
     "desc_pick",
     "desc_multi",
     "chi_row",
@@ -1134,6 +1136,26 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 _fmt_analysis_col(gcol),
                                 sample=sub,
                             )
+                        )
+                        sig_csv = build_significance_report_csv(
+                            y_label=_fmt_analysis_col(ycol),
+                            g_label=_fmt_analysis_col(gcol),
+                            ordinal_scheme=_sch_dsp,
+                            n_pairs=len(sub),
+                            n_work=len(df_work),
+                            n_dataset=len(df),
+                            res=res,
+                            sample=sub,
+                            inverted=ycol in invert_set,
+                        )
+                        st.download_button(
+                            "Descargar informe (CSV)",
+                            sig_csv,
+                            file_name="prueba_significancia.csv",
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True,
+                            key="sig_test_download_csv",
                         )
         
             # --- Cronbach ---
