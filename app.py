@@ -99,6 +99,7 @@ from survey_guided import (
     discover_filter_columns,
     short_choice_label,
     interpret_guided,
+    pick_likert_columns,
     run_guided_analysis,
     GuidedSpec,
 )
@@ -217,8 +218,12 @@ def _clear_analysis_ui_state() -> None:
     st.session_state.pop("_guided_primary_col", None)
     for key in list(st.session_state.keys()):
         k = str(key)
-        if k.startswith("guided_filter_") or k.startswith("pick_main_sections") or k.startswith(
-            "pick_quant_modules"
+        if (
+            k.startswith("guided_filter_")
+            or k.startswith("pick_main_sections")
+            or k.startswith("pick_quant_modules")
+            or k.startswith("cronbach_selected__")
+            or "__chk__" in k
         ):
             st.session_state.pop(key, None)
 
@@ -1175,14 +1180,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         "Solo se listan ítems detectados como **Likert** o **frecuencia**. "
                         "No uses género, edad ni categorías cerradas sueltas: el α no aplica y rompe la codificación."
                     )
-                    items_c = st.multiselect(
-                        "Ítems Likert / frecuencia (mínimo 2 columnas)",
-                        options=cronbach_opts,
-                        default=[],
-                        format_func=_fmt_analysis_col,
-                        key=_widget_key("cronbach_items"),
-                        placeholder="Escribí para buscar (p. ej. «uso», «IA», «frecuencia»)…",
-                        help="Elegí ítems del **mismo bloque** de escala. Si el menú dice «No results», borrá el texto del buscador.",
+                    _cron_sel_key = _widget_key("cronbach_selected")
+                    items_c = pick_likert_columns(
+                        cronbach_opts,
+                        _fmt_analysis_col,
+                        session_key=_cron_sel_key,
+                        filter_input_key=_widget_key("cronbach_filter"),
+                        select_all_key=_widget_key("cronbach_sel_all"),
+                        clear_all_key=_widget_key("cronbach_clear"),
                     )
                     if len(items_c) >= 2:
                         diag_tbl, diag_sum, enc_mat_cron = cronbach_encoding_diagnostics(

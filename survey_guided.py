@@ -3,12 +3,15 @@ Modo guiado: elegir pregunta del cuestionario, filtros y tipo de análisis sin l
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
+import streamlit as st
 
 from quant_advanced import (
     GroupComparisonResult,
@@ -523,6 +526,80 @@ def build_cronbach_report_csv(
         w("\n")
 
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+def _checkbox_key(session_key: str, column: str) -> str:
+    digest = hashlib.md5(column.encode("utf-8")).hexdigest()[:16]
+    return f"{session_key}__chk__{digest}"
+
+
+def pick_likert_columns(
+    options: list[str],
+    label_fn: Callable[[str], str],
+    *,
+    session_key: str,
+    filter_input_key: str,
+    select_all_key: str,
+    clear_all_key: str,
+) -> list[str]:
+    """
+    Selector de ítems sin st.multiselect (evita el banner flotante «No results» de Streamlit).
+    """
+    if session_key not in st.session_state:
+        st.session_state[session_key] = []
+
+    st.markdown("**Ítems Likert / frecuencia** (marcá al menos 2)")
+    filt = st.text_input(
+        "Buscar en la lista",
+        key=filter_input_key,
+        placeholder="Filtrá por palabra (p. ej. «IA», «frecuencia», «uso»)…",
+    )
+    q = filt.strip().lower()
+    visible = [
+        o
+        for o in options
+        if not q or q in label_fn(o).lower() or q in str(o).lower()
+    ]
+
+    b1, b2, _ = st.columns([1, 1, 2])
+    with b1:
+        if st.button("Marcar visibles", key=select_all_key, use_container_width=True):
+            cur = set(st.session_state[session_key])
+            cur.update(visible)
+            st.session_state[session_key] = [o for o in options if o in cur]
+            st.rerun()
+    with b2:
+        if st.button("Limpiar selección", key=clear_all_key, use_container_width=True):
+            st.session_state[session_key] = []
+            for k in list(st.session_state.keys()):
+                if str(k).startswith(f"{session_key}__chk__"):
+                    st.session_state.pop(k, None)
+            st.rerun()
+
+    prev: list[str] = list(st.session_state[session_key])
+    picked_visible: list[str] = []
+    with st.container(height=340):
+        c1, c2 = st.columns(2)
+        for i, opt in enumerate(visible):
+            with (c1 if i % 2 == 0 else c2):
+                ck = _checkbox_key(session_key, opt)
+                if st.checkbox(
+                    label_fn(opt),
+                    value=opt in prev,
+                    key=ck,
+                ):
+                    picked_visible.append(opt)
+
+    hidden = [o for o in prev if o not in visible]
+    merged = hidden + [o for o in picked_visible if o not in hidden]
+    st.session_state[session_key] = merged
+    st.caption(f"**{len(merged)}** ítems seleccionados.")
+    if merged:
+        preview = ", ".join(label_fn(o)[:48] for o in merged[:8])
+        if len(merged) > 8:
+            preview += f" … (+{len(merged) - 8} más)"
+        st.caption(preview)
+    return merged
 
 
 def apply_cohort_filters(df: pd.DataFrame, filters: dict[str, list[str]]) -> pd.DataFrame:
