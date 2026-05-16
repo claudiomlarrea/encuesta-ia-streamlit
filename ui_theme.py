@@ -42,7 +42,7 @@ def inject_theme() -> None:
         }}
 
         [data-testid="stAppViewContainer"] [data-testid="stMain"] .block-container {{
-            padding-top: 1.25rem;
+            padding-top: 2.75rem;
             padding-bottom: 2.5rem;
             padding-left: 1.5rem;
             padding-right: 1.5rem;
@@ -53,8 +53,8 @@ def inject_theme() -> None:
             box-sizing: border-box;
             width: 100%;
             max-width: 100%;
-            margin: 0 0 0.85rem 0;
-            padding: 0.25rem 0 0.75rem 0;
+            margin: 0.5rem 0 0.85rem 0;
+            padding: 0.65rem 0 0.85rem 0;
             overflow: visible;
             border-bottom: 3px solid {GREEN};
         }}
