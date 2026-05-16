@@ -89,6 +89,7 @@ from survey_intel import (
     ngram_top_table,
     thematic_nmf,
 )
+from analytics import inject_google_analytics
 from feedback import render_institutional_contact
 from instructivo import render_instructivo_button
 from survey_guided import (
@@ -394,6 +395,8 @@ def main() -> None:
     if "loaded_df" not in st.session_state:
         st.session_state.loaded_df = None
         st.session_state.loaded_name = None
+
+    inject_google_analytics()
 
     render_institutional_header()
     render_brand_header(APP_NAME, APP_TAGLINE)
