@@ -591,7 +591,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                         key="guided_value_pick",
                                     )
                             with col_btn:
-                                st.markdown('<motion disabled><div class="guided-form-actions">', unsafe_allow_html=True)
+                                st.markdown('<div class="guided-form-actions">', unsafe_allow_html=True)
                                 run_guided = st.form_submit_button(
                                     "Ver resultados",
                                     type="primary",
