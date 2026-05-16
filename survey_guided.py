@@ -528,6 +528,92 @@ def build_cronbach_report_csv(
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
+def build_pca_efa_report_csv(
+    *,
+    item_labels: list[str],
+    n_work: int,
+    n_dataset: int,
+    n_pc_requested: int,
+    n_factors_requested: int,
+    latent_name: str,
+    use_poly: bool,
+    diag_sum: pd.DataFrame,
+    diag_tbl: pd.DataFrame,
+    n_complete: int,
+    rep_pca: pd.DataFrame | None = None,
+    scale_warnings: list[str] | None = None,
+    loadings_pca: pd.DataFrame | None = None,
+    var_pca: list[float] | None = None,
+    loadings_efa: pd.DataFrame | None = None,
+    eigenvalues: list[float] | None = None,
+    status_note: str = "",
+) -> bytes:
+    """CSV: ítems, diagnóstico ordinal, cargas PCA/AFE si se calcularon."""
+    buf = io.StringIO()
+    w = buf.write
+
+    w(_csv_row("Encuesta Clara — Informe PCA / AFE"))
+    w("\n")
+    w(_csv_row("1. Ítems incluidos"))
+    for lab in item_labels:
+        w(_csv_row("", lab))
+    w("\n")
+    w(_csv_row("Casos en submuestra / encuesta", f"{n_work} / {n_dataset}"))
+    w(_csv_row("Casos list-wise (todos los ítems codificados)", n_complete))
+    w(_csv_row("Dimensiones PCA solicitadas", n_pc_requested))
+    w(_csv_row("Factores AFE solicitados", n_factors_requested))
+    w(_csv_row("Correlaciones policóricas", "Sí" if use_poly else "No"))
+    w(_csv_row("Nombre factor (export lavaan)", latent_name))
+    if status_note:
+        w(_csv_row("Estado del análisis", status_note))
+    if scale_warnings:
+        w(_csv_row("Avisos de escala", " | ".join(scale_warnings[:6])))
+    w("\n")
+
+    w(_csv_row("2. Resumen de superposición (list-wise)"))
+    w("\n")
+    diag_sum.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    w(_csv_row("3. Diagnóstico por ítem (codificación ordinal)"))
+    w("\n")
+    diag_tbl.to_csv(buf, index=False, lineterminator="\n")
+    w("\n")
+
+    if rep_pca is not None and not rep_pca.empty:
+        w(_csv_row("4. Escala efectiva por ítem (casos completos)"))
+        w("\n")
+        rep_pca.to_csv(buf, index=False, lineterminator="\n")
+        w("\n")
+
+    if var_pca:
+        w(_csv_row("5. Varianza explicada (PCA)"))
+        w("\n")
+        for i, v in enumerate(var_pca, start=1):
+            w(_csv_row(f"PC{i}", f"{float(v):.6f}"))
+        w("\n")
+
+    if loadings_pca is not None and not loadings_pca.empty:
+        w(_csv_row("6. Cargas PCA"))
+        w("\n")
+        loadings_pca.round(4).to_csv(buf, lineterminator="\n")
+        w("\n")
+
+    if loadings_efa is not None and not loadings_efa.empty:
+        w(_csv_row("7. Cargas AFE rotadas (Varimax)"))
+        w("\n")
+        loadings_efa.round(4).to_csv(buf, lineterminator="\n")
+        w("\n")
+
+    if eigenvalues:
+        w(_csv_row("8. Autovalores AFE"))
+        w("\n")
+        w(_csv_row("Autovalor", " | ".join(f"{v:.4f}" for v in eigenvalues[:12])))
+        w("\n")
+
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
 def _checkbox_key(session_key: str, column: str) -> str:
     digest = hashlib.md5(column.encode("utf-8")).hexdigest()[:16]
     return f"{session_key}__chk__{digest}"

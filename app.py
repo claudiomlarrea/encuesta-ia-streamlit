@@ -94,6 +94,7 @@ from survey_guided import (
     build_guided_report_csv,
     build_significance_report_csv,
     build_cronbach_report_csv,
+    build_pca_efa_report_csv,
     cohort_filter_scope_markdown,
     crosstab_table_caption,
     discover_filter_columns,
@@ -1321,11 +1322,20 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             if "5. PCA / AFE" in Q:
                 with Q["5. PCA / AFE"]:
                     st.markdown("#### Componentes principales + análisis factorial exploratorio")
-                    items_p = st.multiselect(
-                        "Columnas Likert escaladas como continuas ordinarias",
-                        options=all_analysis_cols,
-                        key="pca_items",
-                        format_func=_fmt_analysis_col,
+                    pca_opts = likert_frequency_column_names(structured_w)
+                    if not pca_opts:
+                        pca_opts = [p.name for p in structured_w]
+                    st.caption(
+                        "Solo ítems **Likert/frecuencia** del mismo bloque (p. ej. usos de IA). "
+                        "No uses género, edad ni trabajo: no son escalas ordinales y dejan 0 casos completos."
+                    )
+                    items_p = pick_likert_columns(
+                        pca_opts,
+                        _fmt_analysis_col,
+                        session_key=_widget_key("pca_selected"),
+                        filter_input_key=_widget_key("pca_filter"),
+                        select_all_key=_widget_key("pca_sel_all"),
+                        clear_all_key=_widget_key("pca_clear"),
                     )
                     use_poly = st.checkbox(
                         "Usar correlaciones policóricas (semopy / hetcor) para PCA y AFE",
@@ -1361,26 +1371,61 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 "Con **3 ítems** el AFE admite como máximo **2 factores**; "
                                 "para elegir más factores, incluí al menos **4** columnas del mismo bloque."
                             )
-                        Xnum = likert_numeric_matrix(df_work, items_p, inverted_cols=invert_set).dropna(how="any")
-                        rep_pca, warns_pca = ordinal_scaling_report(Xnum)
+                        diag_tbl_p, diag_sum_p, enc_mat_p = cronbach_encoding_diagnostics(
+                            df_work, items_p, inverted_cols=invert_set
+                        )
+                        Xnum = enc_mat_p.dropna(how="any")
+                        min_cases_pca = max(10, 3 * n_items)
+                        with st.expander(
+                            "Diagnóstico de codificación por ítem",
+                            expanded=len(Xnum) < min_cases_pca,
+                        ):
+                            st.dataframe(diag_sum_p, use_container_width=True)
+                            st.dataframe(diag_tbl_p, use_container_width=True, hide_index=True)
+
+                        rep_pca = pd.DataFrame()
+                        warns_pca: list[str] = []
+                        if len(Xnum) > 0:
+                            rep_pca, warns_pca = ordinal_scaling_report(Xnum)
+                        elif not enc_mat_p.empty:
+                            rep_pca, warns_pca = ordinal_scaling_report(enc_mat_p)
+
                         st.markdown("##### Escala efectiva por ítem (mezclas 4 vs 5 categorías)")
-                        st.dataframe(rep_pca, use_container_width=True, hide_index=True)
+                        if not rep_pca.empty:
+                            st.dataframe(rep_pca, use_container_width=True, hide_index=True)
                         for w in warns_pca:
                             st.info(w)
-                        if len(Xnum) < 40:
-                            st.warning("Necesitas más observaciones completas para factores estables.")
-                            _pca_intro = (
-                                f"Seleccionaste **{Xnum.shape[1]}** ítems sobre **{len(Xnum)}** encuestados con datos completos en ese bloque. "
-                                "La tabla de escala muestra niveles efectivos tras la codificación automática por ítem. "
-                                "**PCA y AFE** no se ejecutan con menos de 40 filas por consistencia muestral habitual en esta vista."
+
+                        out_load_pca: pd.DataFrame | None = None
+                        out_var_pca: list[float] | None = None
+                        out_load_efa: pd.DataFrame | None = None
+                        out_eig: list[float] | None = None
+                        pca_status = "No ejecutado"
+
+                        if len(Xnum) == 0:
+                            st.error(
+                                "Ningún encuestado tiene **todos** los ítems codificados (intersección list-wise = 0). "
+                                "Revisá el diagnóstico: elegí ítems del **mismo bloque** y con cobertura suficiente."
                             )
-                            if warns_pca:
-                                _bits = "; ".join([w[:220] for w in warns_pca[:3]])
-                                _pca_intro += "\n\n**Avisos de escala:** " + _bits
-                                if len(warns_pca) > 3:
-                                    _pca_intro += "…"
-                            _bloque_interpretacion_cuantitativa(_pca_intro)
+                            _bloque_interpretacion_cuantitativa(
+                                f"Seleccionaste **{n_items}** ítems; **0** encuestados con datos completos en ese bloque."
+                            )
+                            pca_status = "Sin casos list-wise"
+                        elif len(Xnum) < min_cases_pca:
+                            st.error(
+                                f"Solo **{len(Xnum)}** casos completos; se requieren al menos **{min_cases_pca}** "
+                                f"para PCA/AFE con {n_items} ítems."
+                            )
+                            _bloque_interpretacion_cuantitativa(
+                                f"**{len(Xnum)}** encuestados con datos completos; insuficiente para el mínimo ({min_cases_pca})."
+                            )
+                            pca_status = f"Casos insuficientes ({len(Xnum)} < {min_cases_pca})"
                         else:
+                            if len(Xnum) < 40:
+                                st.warning(
+                                    f"**{len(Xnum)}** casos completos (menos de 40): interpretá los factores como exploratorios."
+                                )
+                            pca_status = "Ejecutado"
                             n_pc_eff = min(int(n_pc), Xnum.shape[1])
                             nf_eff = min(int(nf), max(2, Xnum.shape[1] - 1))
                             lab_ld = loading_row_choice_labels(items_p)
@@ -1452,6 +1497,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             ),
                                         )
                                     )
+                                    out_load_pca = loadings_pca
+                                    out_var_pca = [float(v) for v in np.asarray(var_pc).ravel()]
+                                    out_load_efa = load_efa
+                                    if eig is not None and eig[0] is not None:
+                                        out_eig = [float(v) for v in np.asarray(eig[0]).ravel()[:20]]
+                                    pca_status = "Policórica (PCA + AFE)"
                                 except Exception as exc:
                                     st.warning(f"No se pudo usar la policórica ({exc}). Se muestra método clásico (Pearson/sklearn).")
                                     ran_poly = False
@@ -1509,6 +1560,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             ),
                                         )
                                     )
+                                    out_load_pca = loadings
+                                    out_var_pca = [float(v) for v in np.asarray(var).ravel()]
+                                    out_load_efa = load_efa
+                                    if eig[0] is not None:
+                                        out_eig = [float(v) for v in np.asarray(eig[0]).ravel()[:20]]
+                                    pca_status = "Clásico (PCA + AFE)"
                                 except Exception as exc:
                                     st.warning(f"AFE no convergió o faltan datos: {exc}")
                                     _bloque_interpretacion_cuantitativa(
@@ -1538,6 +1595,38 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             ),
                                         )
                                     )
+                                    out_load_pca = loadings
+                                    out_var_pca = [float(v) for v in np.asarray(var).ravel()]
+                                    pca_status = "Clásico (solo PCA; AFE omitido)"
+
+                        pca_csv = build_pca_efa_report_csv(
+                            item_labels=[_fmt_analysis_col(c) for c in items_p],
+                            n_work=len(df_work),
+                            n_dataset=len(df),
+                            n_pc_requested=int(n_pc),
+                            n_factors_requested=int(nf),
+                            latent_name=latent_lavaan,
+                            use_poly=use_poly,
+                            diag_sum=diag_sum_p,
+                            diag_tbl=diag_tbl_p,
+                            n_complete=len(Xnum),
+                            rep_pca=rep_pca if not rep_pca.empty else None,
+                            scale_warnings=warns_pca or None,
+                            loadings_pca=out_load_pca,
+                            var_pca=out_var_pca,
+                            loadings_efa=out_load_efa,
+                            eigenvalues=out_eig,
+                            status_note=pca_status,
+                        )
+                        st.download_button(
+                            "Descargar informe (CSV)",
+                            pca_csv,
+                            file_name="pca_afe.csv",
+                            mime="text/csv",
+                            type="primary",
+                            use_container_width=True,
+                            key="pca_download_csv",
+                        )
         
             # --- Clustering ---
             if "6. Clustering" in Q:
