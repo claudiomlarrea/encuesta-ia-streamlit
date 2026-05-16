@@ -90,6 +90,7 @@ from survey_intel import (
     thematic_nmf,
 )
 from feedback import render_institutional_contact
+from instructivo import render_instructivo_button
 from survey_guided import (
     analysis_options_for_column,
     apply_cohort_filters,
@@ -503,6 +504,7 @@ def main() -> None:
 Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciales, Alfa de Cronbach, PCA/AFE, clustering, modelos predictivos con SHAP** y un bloque básico de CFA vía `semopy`.
                 """
             )
+        render_instructivo_button()
         return
 
     if _bind_ui_to_dataset():
