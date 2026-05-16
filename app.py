@@ -490,10 +490,6 @@ def main() -> None:
         if st.session_state.get("_ui_bound_to"):
             _clear_analysis_ui_state()
             st.session_state.pop("_ui_bound_to", None)
-        st.info(
-            "**Subí el archivo** con el botón «Browse files» en la barra lateral. "
-            "En la nube **no funciona** pegar una carpeta local; sólo la subida de archivos."
-        )
         with st.expander("Qué análisis cuantitativos suelen usarse en encuestas como la tuya"):
             st.markdown(
                 """
