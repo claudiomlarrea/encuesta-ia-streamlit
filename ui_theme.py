@@ -15,9 +15,11 @@ GREEN_MID = "#0A5C3E"
 ORANGE = "#EAA958"
 MAROON = "#934B3F"
 TEXT = "#1A2E28"
-TEXT_MUTED = "#4A5F56"
+TEXT_MUTED = "#666666"
+GRAY_INST = "#E8E8E8"
+GRAY_INST_SOFT = "#F0F0F0"
 SURFACE = "#FFFFFF"
-BG = "#FAFCFA"
+BG = GRAY_INST
 
 PRIMARY = GREEN
 PRIMARY_DARK = GREEN_DARK
@@ -39,6 +41,13 @@ def inject_theme() -> None:
 
         html, body, [class*="css"] {{
             font-family: 'Montserrat', system-ui, -apple-system, sans-serif;
+        }}
+
+        [data-testid="stAppViewContainer"] {{
+            background-color: {GRAY_INST};
+        }}
+        [data-testid="stHeader"] {{
+            background-color: {GRAY_INST_SOFT};
         }}
 
         [data-testid="stAppViewContainer"] [data-testid="stMain"] .block-container {{
@@ -95,7 +104,7 @@ def inject_theme() -> None:
         }}
 
         .ec-hero {{
-            background: linear-gradient(135deg, {GREEN_LIGHT} 0%, #FFFFFF 55%, #FFF8EE 100%);
+            background: linear-gradient(135deg, {SURFACE} 0%, {GREEN_LIGHT} 45%, {GRAY_INST_SOFT} 100%);
             border: 1px solid #B8D4C8;
             border-left: 5px solid {GREEN};
             border-radius: 14px;
@@ -130,8 +139,8 @@ def inject_theme() -> None:
         }}
 
         [data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #FFFFFF 0%, {GREEN_LIGHT} 100%);
-            border-right: 1px solid #C5D9CE;
+            background: linear-gradient(180deg, {GRAY_INST_SOFT} 0%, {GRAY_INST} 100%);
+            border-right: 1px solid #C8C8C8;
         }}
         [data-testid="stSidebar"] .stMarkdown h2, [data-testid="stSidebar"] .stMarkdown h3 {{
             color: {GREEN_DARK};
