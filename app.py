@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import os
+from pathlib import Path
 from typing import Any
 
 _HAS_SEMOPY = importlib.util.find_spec("semopy") is not None
@@ -166,6 +168,7 @@ MAIN_TABS_ORDER = [
     "Análisis cualitativo",
     "Guía metodológica",
 ]
+MAIN_TABS_PUBLIC_HIDDEN = frozenset({"Guía metodológica"})
 QUANT_MODULE_ORDER = [
     "1. Descriptivos",
     "2. Cruces + χ²",
@@ -177,6 +180,54 @@ QUANT_MODULE_ORDER = [
     "8. CFA – semopy",
     "9. Notas metodológicas",
 ]
+QUANT_MODULES_PUBLIC_HIDDEN = frozenset({"9. Notas metodológicas"})
+
+
+def _is_streamlit_cloud() -> bool:
+    if os.environ.get("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud":
+        return True
+    return Path("/mount/src").is_dir()
+
+
+def is_public_deployment() -> bool:
+    """
+    Modo público (p. ej. Streamlit Cloud / LinkedIn): sin guía interna, notas técnicas ni ruta local.
+    Forzá con secrets.toml: APP_MODE = "public" | "local"
+    """
+    try:
+        mode = str(st.secrets.get("APP_MODE", "")).strip().lower()
+    except Exception:
+        mode = ""
+    if mode in ("public", "cloud", "production"):
+        return True
+    if mode in ("local", "dev", "development"):
+        return False
+    return _is_streamlit_cloud()
+
+
+def main_tabs_for_ui(*, public: bool) -> list[str]:
+    if public:
+        return [t for t in MAIN_TABS_ORDER if t not in MAIN_TABS_PUBLIC_HIDDEN]
+    return list(MAIN_TABS_ORDER)
+
+
+def quant_modules_for_ui(*, public: bool) -> list[str]:
+    if public:
+        return [m for m in QUANT_MODULE_ORDER if m not in QUANT_MODULES_PUBLIC_HIDDEN]
+    return list(QUANT_MODULE_ORDER)
+
+
+def _sanitize_ui_tab_picks(*, public: bool) -> None:
+    """Quita pestañas/módulos internos si quedaron en sesión tras un deploy público."""
+    main_key = _widget_key("pick_main_sections")
+    quant_key = _widget_key("pick_quant_modules")
+    allowed_main = set(main_tabs_for_ui(public=public))
+    allowed_quant = set(quant_modules_for_ui(public=public))
+    if main_key in st.session_state:
+        st.session_state[main_key] = [x for x in st.session_state[main_key] if x in allowed_main]
+    if quant_key in st.session_state:
+        st.session_state[quant_key] = [x for x in st.session_state[quant_key] if x in allowed_quant]
+
 
 _UI_WIDGET_KEYS = (
     "pick_main_sections",
@@ -345,25 +396,31 @@ def main() -> None:
     render_institutional_header()
     render_brand_header(APP_NAME, APP_TAGLINE)
 
+    public_ui = is_public_deployment()
+    _sanitize_ui_tab_picks(public=public_ui)
+
     with st.sidebar:
         st.header("Datos")
         up = st.file_uploader(
             "Subí el Excel de respuestas",
             type=["xlsx", "xls"],
         )
-        default_path = (
-            "/Users/claudiolarrea/Downloads/Copia de Encuesta IA - Alumnos (respuestas).xlsx"
-        )
-        manual_path = st.text_input(
-            "O ruta local al Excel (solo si corrés streamlit en tu PC)",
-            value="",
-            placeholder=default_path,
-            help="En Streamlit Cloud este campo no sirve: usá siempre «Subí el archivo».",
-        )
+        manual_path = ""
+        if not public_ui:
+            manual_path = st.text_input(
+                "O ruta local al Excel (solo si corrés streamlit en tu PC)",
+                value="",
+                placeholder="Ej.: /ruta/a/respuestas.xlsx",
+                help="En Streamlit Cloud este campo no sirve: usá siempre «Subí el archivo».",
+            )
         st.caption(
-            "**Nube:** el archivo tiene que subirse cada vez que cambiás de dispositivo o si reiniciás; "
-            "al cargar, los datos quedan en esta sesión hasta que pulsás «Quitar archivo». "
-            "Al **cambiar de encuesta**, las pestañas y módulos vuelven a mostrarse todos."
+            "**Nube:** subí el Excel con el botón de arriba; los datos quedan en esta sesión "
+            "hasta que pulsás «Quitar archivo»."
+            + (
+                ""
+                if public_ui
+                else " Al **cambiar de encuesta**, las pestañas y módulos vuelven a mostrarse todos."
+            )
         )
 
         toggle_hf = st.toggle(
@@ -455,18 +512,23 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
     fname = st.session_state.loaded_name or "datos.xlsx"
     st.success(f"Archivo cargado: **{fname}** — {df.shape[0]} filas × {df.shape[1]} columnas")
 
+    main_tab_opts = main_tabs_for_ui(public=public_ui)
+    quant_mod_opts = quant_modules_for_ui(public=public_ui)
+
     with st.sidebar:
+        if public_ui:
+            st.caption("Vista pública: análisis listos para usar (sin documentación interna).")
         main_sections = st.multiselect(
             "Pestañas del panel que querés ver",
-            MAIN_TABS_ORDER,
-            default=list(MAIN_TABS_ORDER),
+            main_tab_opts,
+            default=main_tab_opts,
             key=_widget_key("pick_main_sections"),
             help="Ocultá lo que no uses para ir directo a lo que necesitás.",
         )
         quant_modules = st.multiselect(
             "Módulos dentro de «Análisis cuantitativo»",
-            QUANT_MODULE_ORDER,
-            default=list(QUANT_MODULE_ORDER),
+            quant_mod_opts,
+            default=quant_mod_opts,
             key=_widget_key("pick_quant_modules"),
             help="Mostrá sólo los análisis que quieras hacer ahora (menos pestañas = más claro).",
         )
@@ -511,13 +573,16 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 "con interpretación — sin ir pestaña por pestaña."
             )
 
-            qa_mode = st.radio(
-                "Modo",
-                ["Guiado (recomendado)", "Pregunta libre (experimental)"],
-                horizontal=True,
-                key="survey_qa_mode",
-                label_visibility="collapsed",
-            )
+            if public_ui:
+                qa_mode = "Guiado (recomendado)"
+            else:
+                qa_mode = st.radio(
+                    "Modo",
+                    ["Guiado (recomendado)", "Pregunta libre (experimental)"],
+                    horizontal=True,
+                    key="survey_qa_mode",
+                    label_visibility="collapsed",
+                )
 
             if qa_mode.startswith("Guiado"):
                 col_choices = build_column_choices(df, profiles)
