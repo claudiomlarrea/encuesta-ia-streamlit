@@ -31,6 +31,8 @@ CHART_SEQUENCE = [GREEN, ORANGE, MAROON, GREEN_MID, "#6B9080", "#C9A227", "#2D6A
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "logo_observatorio_ia.png"
 OBSERVATORIO_NAME = "Observatorio de Inteligencia Artificial"
 INSTITUTION_NAME = "Universidad Católica de Cuyo"
+OBSERVATORIO_SITE_URL = "https://claudiomlarrea.github.io/observatorio-ia/"
+SURVEY_APP_URL = "https://cuantitativo-cualitativo-encuesta.streamlit.app/"
 
 
 def inject_theme() -> None:
@@ -262,6 +264,24 @@ def inject_theme() -> None:
             clear: both;
             border-top: 1px solid #C8C8C8;
         }}
+
+        .ec-site-links {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem 1.25rem;
+            margin: 0 0 0.85rem 0;
+            font-size: 0.92rem;
+        }}
+        .ec-site-links a {{
+            color: {GREEN};
+            font-weight: 600;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(4, 74, 48, 0.35);
+        }}
+        .ec-site-links a:hover {{
+            color: {GREEN_MID};
+            border-bottom-color: {GREEN_MID};
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -272,6 +292,19 @@ def _logo_base64() -> str:
     if not LOGO_PATH.is_file():
         return ""
     return base64.b64encode(LOGO_PATH.read_bytes()).decode("ascii")
+
+
+def render_site_links() -> None:
+    """Enlaces cruzados entre la app y el sitio del Observatorio."""
+    obs = html.escape(OBSERVATORIO_SITE_URL)
+    st.markdown(
+        f"""
+        <nav class="ec-site-links" aria-label="Sitio del Observatorio">
+            <a href="{obs}" target="_blank" rel="noopener noreferrer">← Sitio del Observatorio de IA</a>
+        </nav>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_institutional_header() -> None:

@@ -1,16 +1,24 @@
-"""Google Analytics 4 (opcional, vía secrets)."""
+"""Google Analytics 4 (secrets o ID por defecto del Observatorio)."""
 from __future__ import annotations
+
+import os
 
 import streamlit as st
 import streamlit.components.v1 as components
 
+# Mismo ID que el sitio publicado en GitHub Pages (Observatorio de IA).
+DEFAULT_MEASUREMENT_ID = "G-C55ZPTW8C2"
+
 
 def _measurement_id() -> str | None:
+    mid = ""
     try:
         sec = st.secrets.get("analytics", {})
         mid = str(sec.get("measurement_id", "")).strip()
     except Exception:
-        mid = ""
+        pass
+    if not mid:
+        mid = os.environ.get("GA4_MEASUREMENT_ID", DEFAULT_MEASUREMENT_ID).strip()
     if mid and mid.upper().startswith("G-"):
         return mid
     return None

@@ -112,11 +112,14 @@ from survey_guided import (
 )
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
 from ui_theme import (
+    OBSERVATORIO_SITE_URL,
+    SURVEY_APP_URL,
     apply_plotly_style,
     configure_matplotlib,
     inject_theme,
     render_brand_header,
     render_institutional_header,
+    render_site_links,
 )
 
 APP_NAME = "Encuesta Clara"
@@ -398,6 +401,7 @@ def main() -> None:
 
     inject_google_analytics()
 
+    render_site_links()
     render_institutional_header()
     render_brand_header(APP_NAME, APP_TAGLINE)
 
@@ -405,6 +409,14 @@ def main() -> None:
     _sanitize_ui_tab_picks(public=public_ui)
 
     with st.sidebar:
+        st.markdown(
+            f"[← Sitio del Observatorio de IA]({OBSERVATORIO_SITE_URL})",
+            unsafe_allow_html=False,
+        )
+        st.caption(
+            f"Herramienta publicada en [Streamlit Cloud]({SURVEY_APP_URL})."
+        )
+        st.markdown("---")
         st.header("Datos")
         up = st.file_uploader(
             "Subí el Excel de respuestas",
