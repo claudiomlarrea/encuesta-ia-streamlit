@@ -765,13 +765,13 @@ def pick_likert_columns(
 
     b1, b2, _ = st.columns([1, 1, 2])
     with b1:
-        if st.button("Marcar visibles", key=select_all_key, use_container_width=True):
+        if st.button("Marcar visibles", key=select_all_key, width="stretch"):
             cur = set(st.session_state[session_key])
             cur.update(visible)
             st.session_state[session_key] = [o for o in options if o in cur]
             st.rerun()
     with b2:
-        if st.button("Limpiar selección", key=clear_all_key, use_container_width=True):
+        if st.button("Limpiar selección", key=clear_all_key, width="stretch"):
             st.session_state[session_key] = []
             for k in list(st.session_state.keys()):
                 if str(k).startswith(f"{session_key}__chk__"):

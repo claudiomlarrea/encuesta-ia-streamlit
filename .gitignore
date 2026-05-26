@@ -1,11 +1,14 @@
 .venv/
+.venv-demo/
 venv/
 # Otros proyectos (no forman parte de Encuesta Clara)
 proveedor-minero-ia/
 extractor-actas-investigacion/
+_extractor-actas-push/
 __pycache__/
 *.pyc
 .DS_Store
 .streamlit/secrets.toml
+.env
 *.xlsx
 !sample/

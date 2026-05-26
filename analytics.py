@@ -39,8 +39,13 @@ def inject_google_analytics() -> None:
         <script>
         (function () {{
             const mid = "{mid}";
-            const doc = window.parent.document;
-            if (doc.getElementById("ec-ga-loader")) return;
+            let doc = document;
+            try {{
+                doc = window.parent.document;
+            }} catch (e) {{
+                doc = document;
+            }}
+            if (!doc || doc.getElementById("ec-ga-loader")) return;
             const loader = doc.createElement("script");
             loader.id = "ec-ga-loader";
             loader.async = true;

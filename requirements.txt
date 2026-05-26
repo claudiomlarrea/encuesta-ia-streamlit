@@ -1,6 +1,6 @@
 # Dependencias mínimas para Streamlit Community Cloud (instalación rápida, sin Torch).
 # Funciones locales con ML extra: ver requirements-full.txt
-streamlit>=1.28.0
+streamlit>=1.50.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 plotly>=5.18.0
