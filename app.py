@@ -111,6 +111,7 @@ from survey_guided import (
     GuidedSpec,
 )
 from survey_qa import example_questions, interpret_result, plan_question, run_plan
+from survey_cleaning_ui import render_data_cleaning_tab
 from ui_theme import (
     OBSERVATORIO_SITE_URL,
     SURVEY_APP_URL,
@@ -169,6 +170,7 @@ def _bloque_lectura_academica_predictivos(texto_md: str) -> None:
 
 MAIN_TABS_ORDER = [
     "Resumen de ítems",
+    "Limpieza de datos",
     "Análisis automático",
     "Análisis cuantitativo",
     "Análisis cualitativo",
@@ -985,6 +987,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 )
             else:
                 st.info("No hay columnas para analizar (revisá el archivo y la marca temporal).")
+
+    if "Limpieza de datos" in T_main:
+        with T_main["Limpieza de datos"]:
+            render_data_cleaning_tab(
+                df,
+                format_col=_fmt_analysis_col,
+                widget_key=_widget_key,
+            )
 
     if "Análisis cuantitativo" in T_main:
         with T_main["Análisis cuantitativo"]:
