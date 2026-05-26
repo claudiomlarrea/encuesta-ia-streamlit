@@ -123,7 +123,7 @@ def render_institutional_contact() -> None:
             apellido = st.text_input("Apellido *", max_chars=80)
             telefono = st.text_input("Teléfono", max_chars=40)
         mensaje = st.text_area("Mensaje *", height=100, max_chars=4000)
-        sent = st.form_submit_button("Enviar mensaje", type="primary", use_container_width=True)
+        sent = st.form_submit_button("Enviar mensaje", type="primary", width="stretch")
 
     if not sent:
         return
@@ -174,7 +174,7 @@ def render_institutional_contact() -> None:
         "Para completar el envío, abrí tu correo con el mensaje ya redactado "
         f"(destino: **{FEEDBACK_TO}**)."
     )
-    st.link_button("Abrir en mi correo", mailto, use_container_width=True)
+    st.link_button("Abrir en mi correo", mailto, width="stretch")
     st.caption(
         "Si el enlace no funciona en tu navegador, copiá el texto y envialo manualmente "
         f"a {FEEDBACK_TO}."

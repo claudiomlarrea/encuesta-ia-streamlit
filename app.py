@@ -3,6 +3,7 @@ Encuesta Clara — panel Streamlit: Excel de encuestas → cuantitativo y cualit
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import os
@@ -277,6 +278,8 @@ def _clear_analysis_ui_state() -> None:
         st.session_state.pop(key, None)
     st.session_state.pop("guided_result_bundle", None)
     st.session_state.pop("_guided_primary_col", None)
+    st.session_state.pop("_profiles_main", None)
+    st.session_state.pop("_profiles_main_token", None)
     for key in list(st.session_state.keys()):
         k = str(key)
         if (
@@ -325,25 +328,29 @@ def _load_sentiment_pipeline():
 
 def load_table(uploaded: Any, path: str | None) -> tuple[pd.DataFrame, str]:
     if uploaded is not None:
-        # Cada rerun del script reutiliza el mismo UploadedFile; sin rebobinar,
-        # .read() puede devolver b'' y vaciar la sesión si el except global borra loaded_df.
-        try:
-            uploaded.seek(0)
-        except (OSError, AttributeError, io.UnsupportedOperation):
-            pass
-        raw = uploaded.read()
-        if not raw:
-            raise ValueError(
-                "No se pudieron leer bytes del archivo subido (buffer vacío). "
-                "Probá «Quitar archivo» y volvé a subirlo."
-            )
+        raw, name = _bytes_from_uploaded(uploaded)
         bio = io.BytesIO(raw)
         df = pd.read_excel(bio)
-        return df, uploaded.name
+        return df.copy(), name
     if path and path.strip():
         df = pd.read_excel(path.strip())
-        return df, path.strip().split("/")[-1]
+        return df.copy(), path.strip().split("/")[-1]
     raise ValueError("No hay archivo.")
+
+
+def _bytes_from_uploaded(uploaded: Any) -> tuple[bytes, str]:
+    """Lee el buffer del `UploadedFile` una vez (hay que rebobinar antes de .read())."""
+    try:
+        uploaded.seek(0)
+    except (OSError, AttributeError, io.UnsupportedOperation):
+        pass
+    raw = uploaded.read()
+    if not raw:
+        raise ValueError(
+            "No se pudieron leer bytes del archivo subido (buffer vacío). "
+            "Probá «Quitar archivo» y volvé a subirlo."
+        )
+    return raw, str(getattr(uploaded, "name", "") or "subido.xlsx")
 
 
 def _safe_int_slider(
@@ -462,22 +469,51 @@ def main() -> None:
     path_load_warning: str | None = None
     try:
         if up is not None:
-            df_new, fname_new = load_table(up, None)
-            new_token = f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
-            if new_token != _dataset_session_token():
-                _clear_analysis_ui_state()
-                st.session_state._ui_bound_to = None
-            st.session_state.loaded_df = df_new
-            st.session_state.loaded_name = fname_new
-        elif manual_path.strip():
-            try:
-                df_new, fname_new = load_table(None, manual_path.strip())
-                new_token = f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
+            raw, fname_from_upload = _bytes_from_uploaded(up)
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest == st.session_state.get("_upload_digest") and isinstance(
+                st.session_state.get("loaded_df"), pd.DataFrame
+            ):
+                pass
+            else:
+                bio = io.BytesIO(raw)
+                df_new = pd.read_excel(bio).copy()
+                fname_new = fname_from_upload
+                new_token = (
+                    f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
+                )
                 if new_token != _dataset_session_token():
                     _clear_analysis_ui_state()
                     st.session_state._ui_bound_to = None
                 st.session_state.loaded_df = df_new
                 st.session_state.loaded_name = fname_new
+                st.session_state._upload_digest = digest
+                st.session_state.pop("_path_sig", None)
+        elif manual_path.strip():
+            st.session_state.pop("_upload_digest", None)
+            p_strip = manual_path.strip()
+            try:
+                p_stat = os.stat(p_strip)
+                path_sig = (p_strip, round(p_stat.st_mtime, 6), p_stat.st_size)
+            except OSError:
+                path_sig = (p_strip, 0.0, 0)
+
+            skip_path_reload = path_sig == st.session_state.get("_path_sig") and isinstance(
+                st.session_state.get("loaded_df"), pd.DataFrame
+            )
+
+            try:
+                if not skip_path_reload:
+                    df_new, fname_new = load_table(None, p_strip)
+                    new_token = (
+                        f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
+                    )
+                    if new_token != _dataset_session_token():
+                        _clear_analysis_ui_state()
+                        st.session_state._ui_bound_to = None
+                    st.session_state.loaded_df = df_new
+                    st.session_state.loaded_name = fname_new
+                    st.session_state._path_sig = path_sig
             except Exception as pe:
                 # En la nube una ruta tipo /Users/... falla; no borrar un Excel ya cargado por subida.
                 path_load_warning = str(pe)
@@ -556,10 +592,17 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             st.session_state.loaded_df = None
             st.session_state.loaded_name = None
             st.session_state.pop("_ui_bound_to", None)
+            st.session_state.pop("_upload_digest", None)
+            st.session_state.pop("_path_sig", None)
             _clear_analysis_ui_state()
             st.rerun()
 
-    profiles = classify_columns(df)
+    _prof_tok = _dataset_session_token()
+    if st.session_state.get("_profiles_main_token") != _prof_tok:
+        with st.spinner("Clasificando ítems de la encuesta (una sola vez por archivo)…"):
+            st.session_state._profiles_main = classify_columns(df)
+            st.session_state._profiles_main_token = _prof_tok
+    profiles = st.session_state._profiles_main
     prof_df = profiles_to_frame(profiles)
     structured = [p for p in profiles if p.kind == "estructurada" and p.n_non_null > 0]
     open_items = [p for p in profiles if p.kind == "abierta" and p.n_non_null > 0]
@@ -730,7 +773,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     run_guided = st.button(
                         "Ver resultados",
                         type="primary",
-                        use_container_width=True,
+                        width="stretch",
                         key="guided_run_results",
                     )
 
@@ -826,7 +869,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 else:
                                     st.dataframe(
                                         show_tbl,
-                                        use_container_width=True,
+                                        width="stretch",
                                         hide_index=True,
                                     )
                                 if tname == "frecuencias" and not tbl.empty:
@@ -875,7 +918,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     file_name="consulta_guiada.csv",
                                     mime="text/csv",
                                     type="primary",
-                                    use_container_width=True,
+                                    width="stretch",
                                     key="guided_download_csv",
                                 )
 
@@ -916,7 +959,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     )
                                 )
                             else:
-                                st.dataframe(tbl, use_container_width=True, hide_index=True)
+                                st.dataframe(tbl, width="stretch", hide_index=True)
                     _bloque_interpretacion_cuantitativa(
                         interpret_result(plan, result, df, col_labels=col_labels)
                     )
@@ -933,7 +976,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             st.subheader("Clasificación automática")
             st.dataframe(
                 prof_df.drop(columns=["_col"], errors="ignore"),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
             c1, c2, c3 = st.columns(3)
@@ -962,12 +1005,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 st.markdown("##### Por pregunta (bloque)")
                 st.dataframe(
                     blk_ord,
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True,
                 )
                 show_det = det_ord.drop(columns=["_columna_interna"], errors="ignore")
                 with st.expander("Detalle automático ítem × ítem"):
-                    st.dataframe(show_det, use_container_width=True, hide_index=True)
+                    st.dataframe(show_det, width="stretch", hide_index=True)
                 csv_b = blk_ord.to_csv(index=False).encode("utf-8")
                 csv_d = det_ord.to_csv(index=False).encode("utf-8")
                 d1, d2 = st.columns(2)
@@ -994,6 +1037,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 df,
                 format_col=_fmt_analysis_col,
                 widget_key=_widget_key,
+                column_profiles=profiles,
             )
 
     if "Análisis cuantitativo" in T_main:
@@ -1076,7 +1120,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             else:
                 Q = dict(zip(q_ord, st.tabs(q_ord)))
 
-            structured_work = classify_columns(df_work)
+            if df_work is df:
+                structured_work = profiles
+            else:
+                structured_work = classify_columns(df_work)
             structured_w = [
                 p
                 for p in structured_work
@@ -1084,7 +1131,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 and p.n_non_null > 0
                 and p.subtype != "sin respuestas"
             ]
-    
+
             # --- Subtab descriptivos ---
             if "1. Descriptivos" in Q:
                 with Q["1. Descriptivos"]:
@@ -1116,7 +1163,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             ft = frequency_table(col_series, top_n=40)
         
                         st.markdown("#### Frecuencias y porcentajes")
-                        st.dataframe(ft, use_container_width=True, hide_index=True)
+                        st.dataframe(ft, width="stretch", hide_index=True)
                         ft_plot = ft[ft["categoría"].astype(str) != "TOTAL"]
                         fig = px.bar(
                             ft_plot.head(20),
@@ -1291,7 +1338,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="prueba_significancia.csv",
                             mime="text/csv",
                             type="primary",
-                            use_container_width=True,
+                            width="stretch",
                             key="sig_test_download_csv",
                         )
         
@@ -1333,8 +1380,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 "**List‑wise** descarta cualquier fila con **codificación incompleta** (texto fuera del diccionario Likert/Frecuencia del panel). "
                                 "Si la cobertura de una columna es baja pero el Excel sí tiene texto, esa columna aporta muchos NaN tras mapear — y la intersección colapsa."
                             )
-                            st.dataframe(diag_sum, hide_index=True, use_container_width=True)
-                            st.dataframe(diag_tbl, hide_index=True, use_container_width=True)
+                            st.dataframe(diag_sum, hide_index=True, width="stretch")
+                            st.dataframe(diag_tbl, hide_index=True, width="stretch")
 
                         ds0 = diag_sum.iloc[0].to_dict() if len(diag_sum) else {}
                         raw_pair_n = int(ds0.get("respuestas_texto_sin_vacio_todas", 0))
@@ -1363,7 +1410,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         else:
                             rep_cron, warns_cron = ordinal_scaling_report(mat)
                             st.markdown("##### Escala efectiva por ítem")
-                            st.dataframe(rep_cron, use_container_width=True, hide_index=True)
+                            st.dataframe(rep_cron, width="stretch", hide_index=True)
                             for w in warns_cron:
                                 st.info(w)
                             alpha_val = cronbach_alpha(mat)
@@ -1379,7 +1426,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 )
                             st.caption(f"Casos usados: {len(mat)} — ítems: {mat.shape[1]}")
                             mat_desc = mat.describe().T
-                            st.dataframe(mat_desc, use_container_width=True)
+                            st.dataframe(mat_desc, width="stretch")
                             _bloque_interpretacion_cuantitativa(
                                 cronbach_explanatory(
                                     alpha_val, len(mat), mat.shape[1], warns_cron, mat=mat
@@ -1405,7 +1452,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="alfa_cronbach.csv",
                             mime="text/csv",
                             type="primary",
-                            use_container_width=True,
+                            width="stretch",
                             key="cronbach_download_csv",
                         )
                     else:
@@ -1473,8 +1520,8 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             "Diagnóstico de codificación por ítem",
                             expanded=len(Xnum) < min_cases_pca,
                         ):
-                            st.dataframe(diag_sum_p, use_container_width=True)
-                            st.dataframe(diag_tbl_p, use_container_width=True, hide_index=True)
+                            st.dataframe(diag_sum_p, width="stretch")
+                            st.dataframe(diag_tbl_p, width="stretch", hide_index=True)
 
                         rep_pca = pd.DataFrame()
                         warns_pca: list[str] = []
@@ -1485,7 +1532,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
                         st.markdown("##### Escala efectiva por ítem (mezclas 4 vs 5 categorías)")
                         if not rep_pca.empty:
-                            st.dataframe(rep_pca, use_container_width=True, hide_index=True)
+                            st.dataframe(rep_pca, width="stretch", hide_index=True)
                         for w in warns_pca:
                             st.info(w)
 
@@ -1535,10 +1582,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                         pd.Series(var_pc, index=[f"PC{i+1}" for i in range(len(var_pc))])
                                     )
                                     st.markdown("##### Cargas PCA")
-                                    st.dataframe(loadings_pca.round(3), use_container_width=True)
+                                    st.dataframe(loadings_pca.round(3), width="stretch")
                                     load_efa, eig = run_efa_from_correlation_matrix(R_poly, n_factors=nf_eff)
                                     st.markdown("##### Cargas AFE rotadas (Varimax, entrada = R policórica)")
-                                    st.dataframe(load_efa.round(3), use_container_width=True)
+                                    st.dataframe(load_efa.round(3), width="stretch")
                                     if eig is not None and eig[0] is not None:
                                         ev = np.asarray(eig[0]).ravel()
                                         st.caption("Autovalores (AFE): " + ", ".join(f"{v:.2f}" for v in ev[: min(8, ev.size)]))
@@ -1552,7 +1599,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                     )
                                     st.code(lavaan_export_snippet(latent_lavaan, sane_names, len(Xnum)), language="r")
                                     with st.expander("Matriz policórica (vista rápida, nombres originales abreviados)"):
-                                        st.dataframe(R_poly.round(4), use_container_width=True)
+                                        st.dataframe(R_poly.round(4), width="stretch")
                                     _bloque_interpretacion_cuantitativa(
                                         pca_explanatory(
                                             loadings_pca,
@@ -1606,11 +1653,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.markdown("##### Varianza explicada (PCA clásico, datos tipificados)")
                                 st.bar_chart(pd.Series(var, index=[f"PC{i+1}" for i in range(len(var))]))
                                 st.markdown("##### Cargas PCA")
-                                st.dataframe(loadings.round(3), use_container_width=True)
+                                st.dataframe(loadings.round(3), width="stretch")
                                 try:
                                     load_efa, eig, _ = run_efa(Xnum, n_factors=nf_eff)
                                     st.markdown("##### Cargas AFE rotadas (Varimax, datos continuos estándar)")
-                                    st.dataframe(load_efa.round(3), use_container_width=True)
+                                    st.dataframe(load_efa.round(3), width="stretch")
                                     if eig[0] is not None:
                                         ev_fallback = np.asarray(eig[0]).ravel()
                                         st.caption(
@@ -1717,7 +1764,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="pca_afe.csv",
                             mime="text/csv",
                             type="primary",
-                            use_container_width=True,
+                            width="stretch",
                             key="pca_download_csv",
                         )
         
@@ -1767,7 +1814,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 clust_inertia = inertia
                                 clust_centers = centers.round(2)
                                 st.metric("Inercia final", f"{inertia:,.1f}")
-                                st.dataframe(clust_centers, use_container_width=True)
+                                st.dataframe(clust_centers, width="stretch")
                                 vc = add_total_count_row(
                                     lbl.value_counts()
                                     .sort_index()
@@ -1862,7 +1909,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             file_name="clustering.csv",
                             mime="text/csv",
                             type="primary",
-                            use_container_width=True,
+                            width="stretch",
                             key="clustering_download_csv",
                         )
                     else:
@@ -1912,7 +1959,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.dataframe(
                                     pred_acc_tbl,
                                     hide_index=True,
-                                    use_container_width=True,
+                                    width="stretch",
                                 )
                                 if shap_pick not in res and shap_pick == "XGBoost":
                                     st.caption("XGBoost omitido si no está disponible.")
@@ -1960,7 +2007,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                         st.dataframe(
                                             tabla_preg,
                                             hide_index=True,
-                                            use_container_width=True,
+                                            width="stretch",
                                         )
                                         st.download_button(
                                             label="Descargar SHAP agrupado por pregunta (.csv)",
@@ -1981,7 +2028,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                             st.dataframe(
                                                 tabla_shap,
                                                 hide_index=True,
-                                                use_container_width=True,
+                                                width="stretch",
                                             )
                                             st.download_button(
                                                 label="Descargar tabla SHAP detalle por columna (.csv)",
@@ -2092,12 +2139,12 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             )
                         else:
                             st.success("Modelo estimado.")
-                            st.dataframe(tabla.head(), use_container_width=True)
+                            st.dataframe(tabla.head(), width="stretch")
                             try:
                                 from semopy.stats import calc_stats  # noqa: PLC0415
         
                                 stat_df = calc_stats(model)
-                                st.dataframe(stat_df, use_container_width=True)
+                                st.dataframe(stat_df, width="stretch")
                             except Exception as exc:
                                 st.caption(f"Métricas globales desde semopy no disponibles: {exc}")
                             _bloque_interpretacion_cuantitativa(cfa_explanatory_short())
@@ -2160,7 +2207,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     )
                     topics, _W, dominant, quotes, texts_nmf = thematic_nmf(filtered, n_topics=topic_k)
                     if topics:
-                        st.dataframe(pd.DataFrame(topics), use_container_width=True, hide_index=True)
+                        st.dataframe(pd.DataFrame(topics), width="stretch", hide_index=True)
                         dom_ser = pd.Series(dominant, name="tema_asignado")
                         st.markdown("###### Frecuencia de respuestas por tema (dominante)")
                         st.bar_chart(dom_ser.value_counts().sort_index())
@@ -2241,7 +2288,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
                     c_sent1, c_sent2 = st.columns(2)
                     with c_sent1:
-                        st.dataframe(dist, use_container_width=True, hide_index=True)
+                        st.dataframe(dist, width="stretch", hide_index=True)
                         fig2 = px.pie(dist, names="sentimiento", values="n", hole=0.35)
                         st.plotly_chart(apply_plotly_style(fig2), use_container_width=True)
                     with c_sent2:
@@ -2296,13 +2343,13 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         if bi.empty:
                             st.caption("Sin bigramas repetidos suficientes.")
                         else:
-                            st.dataframe(bi, use_container_width=True, hide_index=True)
+                            st.dataframe(bi, width="stretch", hide_index=True)
                     with g2:
                         st.markdown("**Trigramas frecuentes**")
                         if tri.empty:
                             st.caption("Sin trigramas repetidos suficientes.")
                         else:
-                            st.dataframe(tri, use_container_width=True, hide_index=True)
+                            st.dataframe(tri, width="stretch", hide_index=True)
 
                     needle = st.text_input(
                         "Buscar palabra o frase (concordancias en contexto)",

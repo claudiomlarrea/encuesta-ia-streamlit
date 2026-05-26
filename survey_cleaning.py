@@ -201,10 +201,18 @@ def _ordinal_level_from_maps(text: str) -> float | None:
     return None
 
 
-def response_intensity(value: Any, *, series_hint: pd.Series | None = None) -> tuple[Intensity, float | None]:
+def response_intensity(
+    value: Any,
+    *,
+    series_hint: pd.Series | None = None,
+    row_idx: Any | None = None,
+    ordinal_coded: pd.Series | None = None,
+    ai_ord: pd.Series | None = None,
+) -> tuple[Intensity, float | None]:
     """
     Clasifica intensidad de una respuesta (uso, frecuencia, acuerdo).
-    series_hint: columna completa para codificación ordinal automática si la celda es ambigua.
+    Pasá ``ordinal_coded`` / ``ai_ord`` precalculados por columna (y ``row_idx``) para no
+    recalcular ``detect_best_ordinal`` en cada fila.
     """
     if pd.isna(value):
         return "desconocido", None
@@ -230,23 +238,29 @@ def response_intensity(value: Any, *, series_hint: pd.Series | None = None) -> t
             if any(w in text for w in ("acceso", "uso", "conozco", "conoc", "tengo", "utilizo")):
                 scores.append(0.15)
 
+    if not scores and ordinal_coded is not None and row_idx is not None:
+        if row_idx in ordinal_coded.index and pd.notna(ordinal_coded.loc[row_idx]):
+            v = float(ordinal_coded.loc[row_idx])
+            lo, hi = float(ordinal_coded.min()), float(ordinal_coded.max())
+            if hi > lo:
+                scores.append((v - lo) / (hi - lo))
+
+    if not scores and ai_ord is not None and row_idx is not None:
+        if row_idx in ai_ord.index and pd.notna(ai_ord.loc[row_idx]):
+            v = float(ai_ord.loc[row_idx])
+            scores.append((v - 1.0) / 4.0)
+
     if not scores and series_hint is not None and len(series_hint) >= 5:
-        idx = series_hint.index[series_hint.astype(str) == raw]
-        if len(idx):
+        # Compatibilidad: una sola columna sin caché (evitar en bucles grandes).
+        match = series_hint.index[series_hint.astype(str) == raw]
+        if len(match):
             coded, _ = detect_best_ordinal(series_hint, min_cover=0.35)
-            if idx[0] in coded.index and pd.notna(coded.loc[idx[0]]):
-                v = float(coded.loc[idx[0]])
+            ix = match[0]
+            if ix in coded.index and pd.notna(coded.loc[ix]):
+                v = float(coded.loc[ix])
                 lo, hi = float(coded.min()), float(coded.max())
                 if hi > lo:
                     scores.append((v - lo) / (hi - lo))
-
-    if not scores:
-        if series_hint is not None and len(series_hint) >= 5:
-            ai_ord, _ = series_spanish_ai_tool_exposure_ordinal(series_hint.astype(str))
-            idx = series_hint.index[series_hint.astype(str) == raw]
-            if len(idx) and pd.notna(ai_ord.loc[idx[0]]):
-                v = float(ai_ord.loc[idx[0]])
-                scores.append((v - 1.0) / 4.0)
 
     if not scores:
         return "desconocido", None
@@ -257,6 +271,32 @@ def response_intensity(value: Any, *, series_hint: pd.Series | None = None) -> t
     if avg >= 0.72:
         return "alto", avg
     return "medio", avg
+
+
+def _ordinal_codes_for_columns(df: pd.DataFrame, columns: list[str]) -> dict[str, pd.Series]:
+    out: dict[str, pd.Series] = {}
+    for col in columns:
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if s.notna().sum() < 5:
+            continue
+        coded, _ = detect_best_ordinal(s, min_cover=0.35)
+        out[col] = coded
+    return out
+
+
+def _ai_ordinals_for_columns(df: pd.DataFrame, columns: list[str]) -> dict[str, pd.Series]:
+    out: dict[str, pd.Series] = {}
+    for col in columns:
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if s.notna().sum() < 5:
+            continue
+        ai_ord, _ = series_spanish_ai_tool_exposure_ordinal(s.astype(str))
+        out[col] = ai_ord
+    return out
 
 
 def _is_low(intensity: Intensity, score: float | None) -> bool:
@@ -284,6 +324,12 @@ def scan_coherence(
         if not cols_a or not cols_b:
             continue
 
+        cols_a = cols_a[:12]
+        cols_b = cols_b[:12]
+        involved = list(dict.fromkeys(cols_a + cols_b))
+        ord_cache = _ordinal_codes_for_columns(df, involved)
+        ai_cache = _ai_ordinals_for_columns(df, involved)
+
         for ca in cols_a:
             for cb in cols_b:
                 if ca == cb:
@@ -294,8 +340,18 @@ def scan_coherence(
                     va, vb = sa.loc[idx], sb.loc[idx]
                     if pd.isna(va) or pd.isna(vb):
                         continue
-                    ia, sc_a = response_intensity(va, series_hint=sa)
-                    ib, sc_b = response_intensity(vb, series_hint=sb)
+                    ia, sc_a = response_intensity(
+                        va,
+                        row_idx=idx,
+                        ordinal_coded=ord_cache.get(ca),
+                        ai_ord=ai_cache.get(ca),
+                    )
+                    ib, sc_b = response_intensity(
+                        vb,
+                        row_idx=idx,
+                        ordinal_coded=ord_cache.get(cb),
+                        ai_ord=ai_cache.get(cb),
+                    )
                     if not (_is_low(ia, sc_a) and _is_high(ib, sc_b)):
                         continue
                     row_num = int(idx) + 1 if isinstance(idx, (int, np.integer)) else idx
@@ -332,11 +388,38 @@ def scan_coherence(
     )
 
 
+_CAREER_YEAR_COL_HINTS = (
+    "carrera",
+    "cursa",
+    "cursás",
+    "grado",
+    "semestre",
+    "cuatrimestre",
+    "anio de la carrera",
+    "año de la carrera",
+    "ano de la carrera",
+    "en que ano",
+    "en qué año",
+)
+
+
+def _is_career_year_column_name(name: str) -> bool:
+    nc = _norm_col(name)
+    if any(h in nc for h in _CAREER_YEAR_COL_HINTS):
+        return True
+    # «año» en el enunciado sin «edad»
+    if ("ano" in nc or "año" in name.lower()) and "edad" not in nc and "age" not in nc:
+        if any(w in nc for w in ("carrera", "curs", "grado", "estas", "estás", "cursando")):
+            return True
+    return False
+
+
 def guess_age_columns(columns: list[str]) -> list[str]:
-    keys = ("edad", "age", "años", "anos", "año")
+    """Columnas cuyo enunciado sugiere edad en años (no año de la carrera)."""
+    keys = ("edad", "age", "cuantos anos", "cuántos años", "anos tiene", "años tiene")
     out: list[str] = []
     for c in columns:
-        if is_timestamp_column(c):
+        if is_timestamp_column(c) or _is_career_year_column_name(c):
             continue
         nc = _norm_col(c)
         if any(k in nc for k in keys):
@@ -344,19 +427,58 @@ def guess_age_columns(columns: list[str]) -> list[str]:
     return out
 
 
+def _looks_like_career_year_answer(text: str) -> bool:
+    """Respuestas tipo «1º año», «3er año de la carrera» — no son edad."""
+    raw = str(text).strip()
+    if not raw:
+        return False
+    t = normalize_text(raw)
+    if any(w in t for w in ("carrera", "semestre", "grado", "cuatrimestre", "cursando")):
+        return True
+    if re.search(r"^(primer|segundo|tercer|cuarto|quinto|sexto)\s+a(n|ñ)o", t):
+        return True
+    if re.search(r"^(1er|2do|3er|4to|5to|6to)\s+a(n|ñ)o", t):
+        return True
+    # «1º año», «2° año» sin la palabra «años» (edad)
+    if re.search(r"\d{1,2}\s*[º°o]?\s*a(n|ñ)o\b", t) and not re.search(r"\ba(n|ñ)os\b", t):
+        return True
+    return False
+
+
 def parse_numeric_age(value: Any) -> float | None:
+    """Extrae edad en años; ignora año de carrera u otras escalas ordinales."""
     if pd.isna(value):
         return None
     if isinstance(value, (int, float, np.integer, np.floating)):
         v = float(value)
         return v if np.isfinite(v) else None
-    t = normalize_text(str(value))
+    raw = str(value).strip()
+    if _looks_like_career_year_answer(raw):
+        return None
+    t = normalize_text(raw)
     if not t:
         return None
-    m = re.search(r"(\d{1,3})\s*(?:años|anos)?", t)
+    m = re.search(r"(\d{1,3})\s*(?:años|anos)\b", t)
     if m:
         return float(m.group(1))
+    if re.fullmatch(r"\d{1,3}", t):
+        return float(t)
+    if re.fullmatch(r"\d{1,3}[,.]\d+", t):
+        return float(t.replace(",", "."))
     return None
+
+
+def column_values_look_like_career_year(df: pd.DataFrame, column: str) -> bool:
+    """True si la mayoría de respuestas parecen año de carrera, no edad."""
+    if column not in df.columns:
+        return False
+    if _is_career_year_column_name(column):
+        return True
+    sample = df[column].dropna().astype(str).head(80)
+    if len(sample) < 3:
+        return False
+    hits = sum(1 for v in sample if _looks_like_career_year_answer(v))
+    return hits >= max(3, int(0.45 * len(sample)))
 
 
 def scan_numeric_outliers(
@@ -369,6 +491,10 @@ def scan_numeric_outliers(
     """Filas con edad u otro número fuera de rango plausible."""
     if column not in df.columns:
         return pd.DataFrame()
+    if column_values_look_like_career_year(df, column):
+        return pd.DataFrame(
+            columns=["fila_excel", "columna", "valor_original", "valor_numérico", "problema"]
+        )
     ages = df[column].map(parse_numeric_age)
     mask = ages.notna() & ((ages < min_value) | (ages > max_value))
     if not mask.any():
@@ -418,7 +544,15 @@ def quality_summary_table(df: pd.DataFrame) -> pd.DataFrame:
 
 def dataset_quality_overview(df: pd.DataFrame) -> dict[str, Any]:
     n = len(df)
-    dup = int(df.duplicated().sum()) if n else 0
+    ncol = len(df.columns)
+    # duplicated() sobre toda la grilla puede costar GB de RAM si n×columnas es enorme.
+    dup: int | None
+    if n == 0:
+        dup = 0
+    elif n * max(ncol, 1) > 5_000_000:
+        dup = None
+    else:
+        dup = int(df.duplicated().sum())
     all_missing_cols = [
         c
         for c in df.columns
@@ -426,7 +560,7 @@ def dataset_quality_overview(df: pd.DataFrame) -> dict[str, Any]:
     ]
     return {
         "filas": n,
-        "columnas": len(df.columns),
+        "columnas": ncol,
         "filas_duplicadas_exactas": dup,
         "columnas_totalmente_vacías": len(all_missing_cols),
     }
@@ -553,9 +687,13 @@ def _normalize_garbage_key(text: str) -> str:
     return re.sub(r"\s+", " ", normalize_text(text)).strip()
 
 
-def infer_text_columns_for_junk(df: pd.DataFrame) -> list[str]:
+def infer_text_columns_for_junk(
+    df: pd.DataFrame,
+    profiles: list | None = None,
+) -> list[str]:
     """Columnas donde tiene sentido buscar basura (abiertas o texto largo heterogéneo)."""
-    profiles = classify_columns(df)
+    if profiles is None:
+        profiles = classify_columns(df)
     names: list[str] = []
     seen: set[str] = set()
     for p in profiles:
