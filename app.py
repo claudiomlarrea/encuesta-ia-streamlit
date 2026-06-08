@@ -2263,11 +2263,15 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
                 with qa2:
                     st.markdown("##### Polaridad / tono (orientativo)")
-                    if not _HAS_TRANSFORMERS:
-                        st.info(
-                            "En este servidor **no está instalado** `transformers` (típico en Streamlit Community Cloud). "
-                            "La polaridad usa el **léxico en español** integrado. Para RoBERTuito instala dependencias pesadas en local: "
-                            "`pip install -r requirements-full.txt`."
+                    if not _HAS_TRANSFORMERS or not toggle_hf:
+                        st.caption(
+                            "Método activo: **léxico en español** integrado (orientativo). "
+                            "Adecuado para respuestas breves y preguntas de preferencia o recomendación."
+                        )
+                    else:
+                        st.caption(
+                            "Método activo: **RoBERTuito** (modelo neuronal). "
+                            "Podés desactivarlo en la barra lateral para volver al léxico."
                         )
                     results: list[str] = []
                     hf_ok = False
@@ -2296,7 +2300,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                     c_sent1, c_sent2 = st.columns(2)
                     with c_sent1:
                         st.dataframe(dist, width="stretch", hide_index=True)
-                        fig2 = px.pie(dist, names="sentimiento", values="n", hole=0.35)
+                        dist_plot = dist.loc[dist["sentimiento"].astype(str) != "TOTAL"]
+                        fig2 = px.pie(
+                            dist_plot,
+                            names="sentimiento",
+                            values="n",
+                            hole=0.35,
+                            title="Distribución del sentimiento",
+                        )
                         st.plotly_chart(apply_plotly_style(fig2), use_container_width=True)
                     with c_sent2:
                         with st.expander("Ejemplos aleatorios por tono (léxico o modelo)"):
