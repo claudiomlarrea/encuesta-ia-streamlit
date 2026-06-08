@@ -2236,6 +2236,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 dominant,
                                 quotes,
                                 texts_nmf,
+                                corpus=filtered,
                             )
                         )
                     else:
@@ -2251,6 +2252,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 [],
                                 {},
                                 [],
+                                corpus=filtered,
                             )
                         )
 
