@@ -419,6 +419,268 @@ def _quote_block(texts: list[str], n: int = 4) -> str:
     return "".join(lines)
 
 
+def _top_themes_phrase(counts: Counter[str], total: int, n: int = 3) -> str:
+    otros = "Otras respuestas"
+    ordered = [(name, counts[name]) for name in counts if name != otros and counts[name] > 0]
+    ordered.sort(key=lambda x: -x[1])
+    if not ordered:
+        return ""
+    parts = [
+        f"**{name}** ({_pct_str(cnt, total)} %)"
+        for name, cnt in ordered[:n]
+    ]
+    return ", ".join(parts)
+
+
+def _thematic_general_interpretation(profile: str, counts: Counter[str], total: int) -> str:
+    top_phrase = _top_themes_phrase(counts, total, 3)
+    lines: list[str] = []
+
+    if profile == "capacitacion":
+        lines.extend([
+            "El análisis temático muestra que los estudiantes no demandan únicamente capacitación "
+            "en el uso básico de herramientas de inteligencia artificial. Sus intereses se concentran "
+            "principalmente en tres dimensiones:\n\n",
+            "1. **Aplicación de la IA a la investigación académica** — búsqueda de información, "
+            "revisión bibliográfica, redacción de informes y producción de conocimiento.\n",
+            "2. **Mejora de la productividad y automatización de tareas** — organización del trabajo, "
+            "ahorro de tiempo y eficiencia en actividades académicas.\n",
+            "3. **Análisis y gestión de datos** — procesamiento, interpretación y visualización "
+            "mediante herramientas de IA.\n\n",
+        ])
+        if top_phrase:
+            lines.append(
+                f"En el corpus analizado (N = {total}), los temas con mayor peso relativo son: "
+                f"{top_phrase}. "
+            )
+        lines.append(
+            "En conjunto, estos resultados indican que la inteligencia artificial es percibida "
+            "principalmente como una herramienta para fortalecer el aprendizaje, la investigación "
+            "y el desempeño académico. Aspectos como la ética, la detección de contenido generado "
+            "por IA, la ingeniería de prompts y las aplicaciones multimedia aparecen como intereses "
+            "complementarios, aunque con menor prioridad relativa.\n\n"
+            "Desde una perspectiva de política formativa, conviene diseñar programas universitarios "
+            "que articulen investigación asistida por IA, análisis de datos, uso estratégico de "
+            "herramientas generativas y formación crítica en ética y verificación de información. "
+            "La lectura integrada sugiere que la demanda estudiantil apunta menos a un catálogo "
+            "instrumental de aplicaciones y más a competencias transferibles para producir, "
+            "evaluar y gestionar conocimiento en entornos académicos mediados por IA.\n"
+        )
+    elif profile == "ventajas":
+        lines.append(
+            "El análisis temático articula la inteligencia artificial como recurso orientado al "
+            "**desempeño académico** y a la **optimización del estudio**. "
+        )
+        if top_phrase:
+            lines.append(f"Los ejes con mayor frecuencia son: {top_phrase}. ")
+        lines.append(
+            "\n\nLa interpretación integrada sugiere una valoración predominantemente instrumental: "
+            "los estudiantes asocian la IA con apoyo cognitivo, ahorro de tiempo y acceso ágil a "
+            "información. No predominan formulaciones de rechazo tecnológico; más bien se reconoce "
+            "un potencial de mejora del rendimiento si el uso se acompaña de criterio y verificación. "
+            "Para políticas institucionales, estos resultados respaldan iniciativas de alfabetización "
+            "que expliciten **cómo** convertir la utilidad percibida en prácticas académicas "
+            "responsables y evaluables.\n"
+        )
+    elif profile == "riesgos":
+        lines.append(
+            "El corpus organiza las preocupaciones en torno a **integridad académica**, "
+            "**dependencia cognitiva**, **confiabilidad de la información** y, en menor medida, "
+            "**brechas de acceso**. "
+        )
+        if top_phrase:
+            lines.append(f"Las categorías más citadas son: {top_phrase}. ")
+        lines.append(
+            "\n\nEl tono general es de **alerta reguladora** más que de oposición a la tecnología: "
+            "los estudiantes no niegan la IA, sino que demandan marcos que limiten usos indebidos "
+            "y protejan la autonomía intelectual. La interpretación integrada invita a combinar "
+            "normas claras, formación en pensamiento crítico y mecanismos de verificación de "
+            "contenidos generados automáticamente. Desde el plano institucional, estos hallazgos "
+            "justifican políticas de uso responsable que anticipen riesgos sin inhibir la "
+            "exploración formativa de herramientas emergentes.\n"
+        )
+    elif profile == "recomendaciones":
+        lines.append(
+            "Las recomendaciones convergen en **formación institucional**, **normas explícitas**, "
+            "**uso crítico** y **acompañamiento docente**. "
+        )
+        if top_phrase:
+            lines.append(f"Los ejes más recurrentes son: {top_phrase}. ")
+        lines.append(
+            "\n\nLos estudiantes esperan marcos compartidos que legitimen el uso de IA en la "
+            "universidad y reduzcan la incertidumbre sobre qué prácticas son admisibles en cada "
+            "contexto evaluativo. La interpretación general subraya que la regulación no se "
+            "percibe como un freno, sino como condición de posibilidad para un uso competente y "
+            "equitativo. Conviene articular talleres, lineamientos por unidad académica y espacios "
+            "de diálogo docente-estudiante que traduzcan estas demandas en protocolos operativos.\n"
+        )
+    else:
+        if top_phrase:
+            lines.append(
+                f"Los temas con mayor peso relativo en el corpus (N = {total}) son: {top_phrase}. "
+            )
+        lines.append(
+            "Esta lectura automática ofrece una primera aproximación temática que debe contrastarse "
+            "con codificación manual, el marco teórico del estudio y la redacción específica de la "
+            "pregunta. La interpretación integrada recomienda triangular estos resultados con el "
+            "análisis de sentimiento y del discurso antes de formular conclusiones institucionales "
+            "o de política pública.\n"
+        )
+    return "".join(lines)
+
+
+def _sentiment_general_interpretation(
+    question_label: str,
+    dist: pd.DataFrame,
+    total: int,
+    by_lab: dict[str, list[str]],
+) -> str:
+    ql = question_label.strip()
+    profile = detect_question_profile(ql)
+    pref = _is_preference_question(ql)
+
+    dom = dist.loc[dist["sentimiento"] != "TOTAL"].sort_values("n", ascending=False)
+    if dom.empty:
+        return (
+            "No fue posible elaborar una interpretación general por ausencia de clasificaciones "
+            "de sentimiento en el corpus.\n"
+        )
+
+    top_lab = str(dom.iloc[0]["sentimiento"])
+    top_n = int(dom.iloc[0]["n"])
+    top_pct = _pct_str(top_n, total)
+    pos_n = len(by_lab.get("positivo", []))
+    neu_n = len(by_lab.get("neutral", []))
+    neg_n = len(by_lab.get("negativo", []))
+
+    lines: list[str] = [
+        f"El análisis de sentimiento clasificó **N = {total}** respuestas. La categoría "
+        f"**{top_lab}** concentra la mayor proporción del corpus (**{top_pct} %**, n = {top_n}). "
+    ]
+
+    if pos_n or neu_n or neg_n:
+        lines.append(
+            f"La distribución detallada es: positivo { _pct_str(pos_n, total) } % "
+            f"(n = {pos_n}), neutro { _pct_str(neu_n, total) } % (n = {neu_n}), "
+            f"negativo { _pct_str(neg_n, total) } % (n = {neg_n}). "
+        )
+
+    if pref or profile == "capacitacion":
+        lines.append(
+            "\n\nDado que la consigna expresa una **preferencia de formación** y no una valoración "
+            "explícita, la predominancia del tono positivo debe leerse como **interés, expectativa "
+            "y disposición al aprendizaje**, más que como entusiasmo emocional en sentido estricto. "
+            "Las respuestas neutras suelen corresponder a menciones temáticas breves (palabras clave, "
+            "áreas disciplinares o herramientas) sin carga evaluativa. Las formulaciones negativas o "
+            "cautelosas, cuando aparecen, rara vez implican rechazo de la tecnología: expresan "
+            "preocupación por el uso responsable, los límites éticos o la dependencia excesiva.\n\n"
+            "En términos emocionales, predominan el **interés** y la **curiosidad**, seguidos de "
+            "la **expectativa** de adquirir competencias útiles para el desempeño académico y "
+            "profesional. La **preocupación** y el **rechazo** se registran con intensidad baja, "
+            "lo que sugiere una comunidad estudiantil mayoritariamente abierta a la capacitación "
+            "en IA, con demandas puntuales de formación crítica.\n\n"
+            "La interpretación integrada indica que la capacitación en inteligencia artificial es "
+            "percibida como una **oportunidad de desarrollo** más que como una amenaza. Para el "
+            "diseño curricular, conviene aprovechar este clima favorable articulando módulos que "
+            "combinen competencias instrumentales, verificación de información y reflexión ética, "
+            "de modo que el interés manifestado se traduzca en prácticas académicas responsables.\n"
+        )
+    elif top_lab == "positivo":
+        lines.append(
+            "\n\nPredominan formulaciones de utilidad, apoyo al estudio o valoración favorable hacia "
+            "el objeto de la pregunta. Conviene contrastar esta lectura con la redacción de la "
+            "consigna y con el análisis temático antes de generalizar a toda la población encuestada.\n\n"
+            "La interpretación integrada sugiere un clima discursivo favorable o de apertura, en el "
+            "que la IA se asocia a beneficios concretos para el aprendizaje o la gestión académica. "
+            "Las menciones neutras aportan precisión temática sin alterar el tono general; las "
+            "expresiones negativas, si existen, suelen funcionar como matices de cautela más que "
+            "como oposición estructural.\n"
+        )
+    elif top_lab == "negativo":
+        lines.append(
+            "\n\nPredomina un registro de alerta, preocupación o crítica. Sin embargo, en contextos "
+            "universitarios sobre IA este tono suele coexistir con aceptación condicionada de la "
+            "tecnología: los encuestados no rechazan la herramienta en sí, sino ciertos usos o "
+            "ausencia de regulación.\n\n"
+            "La interpretación integrada recomienda leer estas respuestas como una demanda de "
+            "marcos institucionales, formación crítica y transparencia, más que como resistencia "
+            "al cambio tecnológico.\n"
+        )
+    else:
+        lines.append(
+            "\n\nPredomina un registro descriptivo o equilibrado, con formulaciones que señalan "
+            "temas o problemas sin polarización emocional marcada. Este patrón es frecuente en "
+            "preguntas abiertas que solicitan enumerar ideas, recomendaciones o áreas de interés.\n\n"
+            "La interpretación integrada aconseja complementar este resultado con el análisis temático "
+            "y la lectura fina de citas representativas antes de inferir actitudes de fondo.\n"
+        )
+    return "".join(lines)
+
+
+def _discourse_general_interpretation(
+    profile: str,
+    corpus: str,
+    n: int,
+    scored_axes: list[tuple[float, DiscourseAxis]],
+) -> str:
+    lines: list[str] = []
+
+    if profile == "capacitacion":
+        lines.append(
+            f"El análisis del discurso sobre las expectativas de capacitación (N = {n}) muestra "
+            "que los estudiantes construyen a la inteligencia artificial predominantemente como "
+            "**herramienta de apoyo al aprendizaje, la investigación y el desarrollo profesional**. "
+            "La IA es representada como tecnología capaz de ampliar capacidades cognitivas, mejorar "
+            "la productividad y facilitar el acceso al conocimiento, sin que ello implique la "
+            "sustitución del sujeto estudiantil.\n\n"
+            "Simultáneamente emerge un discurso que reconoce la necesidad de **alfabetización "
+            "especializada** (prompts, criterios de verificación, interacción estratégica con "
+            "sistemas generativos) y de **regulación ética** (uso responsable, límites, prevención "
+            "de dependencia). Estos ejes no contradicen la visión optimista dominante: la complementan "
+            "y la hacen más exigente desde el punto de vista formativo.\n\n"
+            "De manera transversal, las respuestas sugieren una **transformación del rol del "
+            "estudiante**: de receptor pasivo de contenidos a agente que gestiona información, "
+            "dialoga con sistemas inteligentes e integra tecnología en la construcción del "
+            "conocimiento. En conjunto, el discurso dominante plantea una relación de "
+            "**complementariedad** entre capacidades humanas y herramientas de IA.\n\n"
+            "Para la planificación institucional, estos hallazgos respaldan programas que no se "
+            "limiten a la demostración de herramientas, sino que desarrollen competencias "
+            "discursivas, críticas y estratégicas para apropiarse de la IA en contextos académicos "
+            "concretos.\n"
+        )
+    else:
+        u = domain_scores_for_string(corpus).get("Utilidad, eficiencia y apoyo al aprendizaje", 0)
+        r = domain_scores_for_string(corpus).get("Riesgos, dependencia y pensamiento crítico", 0)
+        e = domain_scores_for_string(corpus).get("Ética académica, plagio y normativa", 0)
+        f = domain_scores_for_string(corpus).get("Formación, lineamientos y uso responsable", 0)
+        dominant_axis = scored_axes[0][1].title if scored_axes else "—"
+        lines.append(
+            f"En el corpus analizado (N = {n}), el análisis del discurso articula varios ejes "
+            f"interpretativos. Por afinidad léxica, destacan las dimensiones de utilidad/aprendizaje "
+            f"(índice {u:.0f}), riesgo/cautela ({r:.0f}), ética/regulación ({e:.0f}) y formación "
+            f"institucional ({f:.0f}). El eje discursivo con mayor peso relativo es "
+            f"**{dominant_axis}**.\n\n"
+        )
+        if u >= r:
+            lines.append(
+                "La lectura integrada sugiere un discurso **mayoritariamente favorable** hacia la IA "
+                "como recurso de apoyo académico, con matices de cautela y demandas de regulación. "
+            )
+        else:
+            lines.append(
+                "La lectura integrada sugiere un discurso **ambivalente**, en el que oportunidades "
+                "y alertas coexisten con similar fuerza. "
+            )
+        lines.append(
+            "Los estudiantes no homogeneizan la tecnología: la posicionan según usos posibles, "
+            "riesgos percibidos y expectativas de acompañamiento institucional.\n\n"
+            "La interpretación general recomienda triangular estos ejes con el análisis temático y "
+            "de sentimiento, y revisar manualmente citas que condensen tensiones entre autonomía, "
+            "dependencia y legitimación del uso de IA en la universidad.\n"
+        )
+    return "".join(lines)
+
+
 def _thematic_table_md(counts: Counter[str], total: int) -> str:
     rows = []
     otros = "Otras respuestas"
@@ -507,41 +769,7 @@ def _thematic_report_taxonomy(
             lines.append("---\n\n")
 
     lines.append("## Interpretación general\n\n")
-    if profile == "capacitacion":
-        lines.append(
-            "El análisis temático muestra que los estudiantes no demandan únicamente capacitación "
-            "en el uso básico de herramientas de inteligencia artificial. Sus intereses se concentran "
-            "principalmente en la **aplicación de la IA a la investigación académica**, la **mejora de "
-            "la productividad** y el **análisis de datos**. Aspectos como la ética, la detección de "
-            "contenido generado por IA y las aplicaciones multimedia aparecen como intereses "
-            "complementarios. Esto sugiere diseñar programas formativos que prioricen investigación "
-            "asistida por IA, análisis de datos y uso estratégico de herramientas generativas.\n"
-        )
-    elif profile == "ventajas":
-        lines.append(
-            "El corpus articula la IA como recurso para **aprender mejor**, **ahorrar tiempo** y "
-            "**acceder a información**. Predomina una valoración instrumental favorable vinculada al "
-            "desempeño académico.\n"
-        )
-    elif profile == "riesgos":
-        lines.append(
-            "Las preocupaciones se organizan en torno a **integridad académica**, **dependencia "
-            "cognitiva**, **confiabilidad de la información** y, en menor medida, **brechas de acceso**. "
-            "El tono es de alerta reguladora más que de rechazo tecnológico.\n"
-        )
-    elif profile == "recomendaciones":
-        lines.append(
-            "Las recomendaciones apuntan a **formación institucional**, **normas claras**, **uso crítico** "
-            "y **acompañamiento docente**. Los estudiantes esperan marcos compartidos para legitimar el uso de IA.\n"
-        )
-    else:
-        top = counts.most_common(3)
-        if top:
-            tops = ", ".join(f"**{n}** ({_pct_str(c, total)} %)" for n, c in top)
-            lines.append(
-                f"Los temas con mayor peso relativo son: {tops}. Contrastá esta lectura automática "
-                "con codificación manual y tu marco teórico.\n"
-            )
+    lines.append(_thematic_general_interpretation(profile, counts, total))
 
     return "".join(lines)
 
@@ -593,11 +821,19 @@ def _thematic_report_nmf(
         lines.append("---\n\n")
 
     top_tid, top_n = vc.most_common(1)[0]
+    pct_top = _pct_str(top_n, n)
     lines.append("## Interpretación general\n\n")
     lines.append(
-        f"El tema automático **{top_tid}** concentra **{top_n}** respuestas como dominante. "
-        "Triangulá con codificación manual y, si la pregunta es de capacitación, ventajas o riesgos, "
-        "compará con las categorías institucionales del Observatorio.\n"
+        f"El modelo exploratorio (NMF) identificó **{k}** particiones en **{n}** respuestas. "
+        f"El tema automático **{top_tid}** concentra **{top_n}** asignaciones dominantes "
+        f"(**{pct_top} %** del corpus modelado), lo que sugiere una agrupación léxica recurrente "
+        "que requiere renombrado teórico antes de incorporarse a un informe definitivo.\n\n"
+        "La interpretación integrada recomienda contrastar estas particiones con codificación "
+        "manual, el marco conceptual del estudio y las categorías institucionales del Observatorio "
+        "cuando la pregunta refiera a capacitación, ventajas, riesgos o recomendaciones. Los temas "
+        "automáticos no sustituyen el juicio del investigador: ofrecen un mapa preliminar de "
+        "co-ocurrencias para orientar la lectura fina de citas y la triangulación con el análisis "
+        "de sentimiento y del discurso.\n"
     )
     return "".join(lines)
 
@@ -753,32 +989,7 @@ def deep_sentiment_markdown(
         lines.append("\n---\n\n")
 
         lines.append("## Interpretación general\n\n")
-        lines.append(
-            f"El análisis de sentimiento revela que la categoría **{top_lab}** es mayoritaria "
-            f"(~{_pct_str(int(dom.iloc[0]['n']), total)} %). "
-        )
-        if _is_preference_question(ql):
-            lines.append(
-                "En conjunto, la comunidad estudiantil percibe la capacitación en IA como una "
-                "**oportunidad de aprendizaje y desarrollo**, más que como una amenaza. Las menciones "
-                "éticas o de riesgo representan una demanda de formación crítica, no un rechazo "
-                "generalizado.\n"
-            )
-        elif top_lab == "positivo":
-            lines.append(
-                "Predominan formulaciones de utilidad, apoyo al estudio o valoración favorable; "
-                "contrastá con la redacción de la pregunta antes de generalizar.\n"
-            )
-        elif top_lab == "negativo":
-            lines.append(
-                "Predomina un registro de alerta o preocupación; suele coexistir con aceptación "
-                "condicionada de la tecnología.\n"
-            )
-        else:
-            lines.append(
-                "Predomina un registro descriptivo o equilibrado; conviene complementar con análisis "
-                "temático y lectura fina de citas.\n"
-            )
+        lines.append(_sentiment_general_interpretation(ql, dist, total, by_lab))
 
     return "".join(lines)
 
@@ -841,10 +1052,20 @@ def _power_relations_section(profile: str) -> str:
         "Las menciones a ética y normas reconocen la necesidad de marcos regulatorios universitarios.\n\n"
         "**Interpretación:** Se espera orientación y formación institucional para un uso adecuado de la IA.\n\n"
         "### Interpretación general de las relaciones de poder\n\n"
-        "La IA se presenta como recurso que redistribuye capacidades y oportunidades de acceso al "
-        "conocimiento. La alfabetización en IA se constituye en forma de **capital digital** en la "
-        "educación superior; las instituciones deben acompañar con políticas de formación, ética y "
-        "acceso equitativo.\n\n"
+        "Desde una perspectiva discursiva, la inteligencia artificial no es presentada únicamente "
+        "como herramienta tecnológica, sino como un recurso que **redistribuye capacidades, "
+        "oportunidades y formas de acceso al conocimiento**. Los discursos analizados permiten "
+        "inferir que la alfabetización en IA comienza a constituirse en una nueva forma de "
+        "**capital digital** dentro de la educación superior: quienes desarrollen mayores "
+        "competencias en el uso crítico y estratégico de estas tecnologías podrían disponer de "
+        "ventajas académicas y profesionales diferenciales.\n\n"
+        "Paralelamente, emerge la necesidad de que las instituciones universitarias acompañen "
+        "este proceso mediante políticas de formación, regulación ética y promoción de un acceso "
+        "equitativo a las herramientas de inteligencia artificial. La tensión entre autonomía "
+        "estudiantil y dependencia tecnológica, así como la expectativa de marcos regulatorios "
+        "institucionales, muestran que el poder no se agota en el dominio individual de la "
+        "herramienta: también se negocia en el vínculo entre estudiantes, docentes y la "
+        "universidad como instancia legitimadora del uso académico de la IA.\n\n"
     )
 
 
@@ -909,22 +1130,63 @@ def deep_discourse_markdown(
         lines.append("\n---\n\n")
 
     lines.append("# Interpretación general del discurso\n\n")
-    if profile == "capacitacion":
-        lines.append(
-            "Los estudiantes construyen a la inteligencia artificial predominantemente como herramienta "
-            "de apoyo al aprendizaje, la investigación y el desarrollo profesional. Simultáneamente "
-            "emerge un discurso que reconoce la necesidad de competencias específicas y criterios éticos. "
-            "La visión dominante plantea **complementariedad** entre capacidades humanas y herramientas de IA.\n\n"
-        )
-    else:
-        u = domain_scores_for_string(corpus).get("Utilidad, eficiencia y apoyo al aprendizaje", 0)
-        r = domain_scores_for_string(corpus).get("Riesgos, dependencia y pensamiento crítico", 0)
-        e = domain_scores_for_string(corpus).get("Ética académica, plagio y normativa", 0)
-        lines.append(
-            f"El corpus articula ejes de **utilidad/aprendizaje** (índice léxico {u:.0f}), **riesgo/cautela** "
-            f"({r:.0f}) y **ética/regulación** ({e:.0f}). La lectura integrada sugiere un discurso "
-            f"{'mayoritariamente favorable con matices regulatorios' if u >= r else 'ambivalente entre oportunidad y alerta'}.\n\n"
-        )
+    lines.append(_discourse_general_interpretation(profile, corpus, n, scored))
 
     lines.append(_power_relations_section(profile))
     return "".join(lines)
+
+
+def build_full_qualitative_markdown(
+    question_label: str,
+    thematic_md: str,
+    sentiment_md: str,
+    discourse_md: str,
+    *,
+    n_responses: int,
+    metodo_sentimiento: str = "",
+) -> str:
+    """Ensambla el informe completo en Markdown para pantalla o exportación."""
+    from datetime import datetime
+
+    ql = question_label.strip()
+    fecha = datetime.now().strftime("%d/%m/%Y")
+    metodo_line = f"**Método de sentimiento:** {metodo_sentimiento}  \n" if metodo_sentimiento else ""
+
+    return (
+        "# Informe de análisis cualitativo\n\n"
+        f"**Pregunta analizada:** *\"{ql}\"*  \n"
+        f"**N = {n_responses}** respuestas válidas  \n"
+        f"**Fecha de generación:** {fecha}  \n"
+        f"{metodo_line}\n"
+        "_Informe orientativo generado automáticamente. Requiere validación del investigador "
+        "antes de su uso en publicaciones o informes institucionales definitivos._\n\n"
+        "---\n\n"
+        "## Resumen ejecutivo\n\n"
+        "Este documento integra tres lecturas complementarias del corpus de respuestas abiertas: "
+        "**análisis temático** (categorías dominantes y frecuencias), **análisis de sentimiento** "
+        "(tono orientativo del léxico o modelo neuronal) y **análisis del discurso** (ejes "
+        "interpretativos, regularidades léxicas y relaciones de poder). Cada sección incluye "
+        "tablas, ejemplos representativos e interpretaciones que deben contrastarse con "
+        "codificación manual y el marco teórico del estudio.\n\n"
+        "---\n\n"
+        "## I. Análisis temático\n\n"
+        f"{_strip_leading_heading(thematic_md)}\n\n"
+        "---\n\n"
+        "## II. Análisis de sentimiento\n\n"
+        f"{_strip_leading_heading(sentiment_md)}\n\n"
+        "---\n\n"
+        "## III. Análisis del discurso\n\n"
+        f"{_strip_leading_heading(discourse_md)}\n\n"
+    )
+
+
+def _strip_leading_heading(md: str) -> str:
+    """Quita el primer encabezado Markdown para evitar duplicar títulos en el informe integrado."""
+    lines = md.strip().splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    if lines and lines[0].lstrip().startswith("#"):
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+    return "\n".join(lines)

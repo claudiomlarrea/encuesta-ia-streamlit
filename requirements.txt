@@ -12,3 +12,4 @@ matplotlib>=3.8.0
 factor-analyzer>=0.5.1
 # Explicaciones tipo Shapley (Streamlit Cloud lo instala junto al resto).
 shap>=0.44.0,<0.49.0
+python-docx>=1.1.0

@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -71,10 +72,12 @@ from quant_summaries import (
     cfa_explanatory_short,
 )
 from qualitative_deep import (
+    build_full_qualitative_markdown,
     deep_discourse_markdown,
     deep_sentiment_markdown,
     deep_thematic_markdown,
 )
+from qualitative_report_docx import build_qualitative_report_docx
 from survey_intel import (
     ColumnProfile,
     SentimentModel,
@@ -2190,6 +2193,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                 texts = df[oc].dropna().astype(str).tolist()
 
                 filtered = [t.strip() for t in texts if len(t.strip()) > 4]
+                thematic_md = ""
+                sentiment_md = ""
+                discourse_md = ""
+                metodo_sent = "léxico en español basado en listas orientativas"
 
                 qa1, qa2, qa3 = st.tabs(
                     [
@@ -2229,32 +2236,30 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                             type="primary",
                         )
                         st.markdown("---")
-                        st.markdown(
-                            deep_thematic_markdown(
-                                q_label,
-                                topics,
-                                dominant,
-                                quotes,
-                                texts_nmf,
-                                corpus=filtered,
-                            )
+                        thematic_md = deep_thematic_markdown(
+                            q_label,
+                            topics,
+                            dominant,
+                            quotes,
+                            texts_nmf,
+                            corpus=filtered,
                         )
+                        st.markdown(thematic_md)
                     else:
                         st.info(
                             "No se extrajeron temas estables: pocas respuestas largas, texto muy repetido o "
                             "vocabulario demasiado disperso. Probá más respuestas o bajá la cantidad de temas en la barra lateral."
                         )
                         st.markdown("---")
-                        st.markdown(
-                            deep_thematic_markdown(
-                                q_label,
-                                [],
-                                [],
-                                {},
-                                [],
-                                corpus=filtered,
-                            )
+                        thematic_md = deep_thematic_markdown(
+                            q_label,
+                            [],
+                            [],
+                            {},
+                            [],
+                            corpus=filtered,
                         )
+                        st.markdown(thematic_md)
 
                 with qa2:
                     st.markdown("##### Polaridad / tono (orientativo)")
@@ -2321,15 +2326,14 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                         else "léxico en español basado en listas orientativas"
                     )
                     st.markdown("---")
-                    st.markdown(
-                        deep_sentiment_markdown(
-                            q_label,
-                            filtered,
-                            results,
-                            dist,
-                            metodo_sent,
-                        )
+                    sentiment_md = deep_sentiment_markdown(
+                        q_label,
+                        filtered,
+                        results,
+                        dist,
+                        metodo_sent,
                     )
+                    st.markdown(sentiment_md)
 
                 with qa3:
                     st.markdown("##### Apoyos para lectura del discurso")
@@ -2368,15 +2372,39 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
                                 st.markdown(f"- {h}")
 
                     st.markdown("---")
-                    st.markdown(
-                        deep_discourse_markdown(
-                            q_label,
-                            filtered,
-                            bi,
-                            tri,
-                            needle or "",
-                            kwic_hits,
-                        )
+                    discourse_md = deep_discourse_markdown(
+                        q_label,
+                        filtered,
+                        bi,
+                        tri,
+                        needle or "",
+                        kwic_hits,
+                    )
+                    st.markdown(discourse_md)
+
+                if filtered and thematic_md and sentiment_md and discourse_md:
+                    st.markdown("---")
+                    st.subheader("Informe integrado")
+                    st.caption(
+                        "Documento Word con análisis temático, de sentimiento y del discurso "
+                        "en orden académico, listo para revisión e incorporación al informe final."
+                    )
+                    full_md = build_full_qualitative_markdown(
+                        q_label,
+                        thematic_md,
+                        sentiment_md,
+                        discourse_md,
+                        n_responses=len(filtered),
+                        metodo_sentimiento=metodo_sent,
+                    )
+                    _safe_slug = re.sub(r"[^\w\s-]", "", q_label)[:50].strip().replace(" ", "_")
+                    st.download_button(
+                        "Descargar informe completo (Word)",
+                        data=build_qualitative_report_docx(full_md, question_label=q_label),
+                        file_name=f"informe_cualitativo_{_safe_slug or 'abiertas'}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        type="primary",
+                        help="Incluye las tres secciones con formato académico (Times New Roman, interlineado 1,5).",
                     )
 
     if "Guía metodológica" in T_main:
