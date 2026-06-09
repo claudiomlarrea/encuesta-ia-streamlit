@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+:root {
+  --aliaa-primary: #1e40af;
+  --aliaa-primary-dark: #1e3a8a;
+  --aliaa-secondary: #0d9488;
+  --aliaa-accent: #f59e0b;
+  --aliaa-background: #ffffff;
+  --aliaa-foreground: #0f172a;
+  --aliaa-card: #ffffff;
+  --aliaa-muted: #f1f5f9;
+  --aliaa-muted-foreground: #64748b;
+  --aliaa-border: #e2e8f0;
+}
+
+.dark {
+  --aliaa-primary: #3b82f6;
+  --aliaa-primary-dark: #2563eb;
+  --aliaa-secondary: #14b8a6;
+  --aliaa-accent: #fbbf24;
+  --aliaa-background: #0f172a;
+  --aliaa-foreground: #f8fafc;
+  --aliaa-card: #1e293b;
+  --aliaa-muted: #1e293b;
+  --aliaa-muted-foreground: #94a3b8;
+  --aliaa-border: #334155;
+}
+
+@theme inline {
+  --color-background: var(--aliaa-background);
+  --color-foreground: var(--aliaa-foreground);
+  --font-sans: var(--font-inter);
+}
+
+body {
+  background: var(--aliaa-background);
+  color: var(--aliaa-foreground);
+  font-family: var(--font-inter), system-ui, sans-serif;
+}
+
+@media print {
+  aside,
+  header,
+  nav,
+  .print\\:hidden {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+}

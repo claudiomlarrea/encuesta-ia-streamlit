@@ -1,0 +1,94 @@
+export function presentation(slides) {
+  return JSON.stringify({ format: "presentation", slides });
+}
+
+export const PRESENTATIONS = {
+  queEsML: presentation([
+    {
+      title: "Bienvenido al curso",
+      highlight: "Fundamentos de Machine Learning · ALIAA",
+      bullets: [
+        "Curso introductorio, pensado para profesionales",
+        "Sin necesidad de experiencia previa en IA",
+        "Aprendé a tu ritmo, con audio y actividades",
+      ],
+      narration:
+        "Bienvenido a ALIAA. En este curso vas a entender qué es Machine Learning, para qué sirve en el mundo real, y cómo dar tus primeros pasos con confianza. No necesitás ser programador experto. Solo curiosidad, y ganas de aprender.",
+    },
+    {
+      title: "¿Qué es Machine Learning?",
+      highlight: "Aprender de los datos, sin programar cada regla",
+      bullets: [
+        "Rama de la Inteligencia Artificial",
+        "Encuentra patrones en datos automáticamente",
+        "Mejora a medida que recibe más ejemplos",
+      ],
+      narration:
+        "Machine Learning es una rama de la inteligencia artificial. En lugar de escribir cada regla a mano, la máquina aprende patrones desde datos. Cuanto mejores sean esos datos, y cuantos más ejemplos tenga, mejor será el resultado.",
+    },
+    {
+      title: "¿Para qué sirve en la práctica?",
+      bullets: [
+        "Predecir ventas, demanda o precios",
+        "Clasificar emails, imágenes o clientes",
+        "Detectar fraude y comportamientos anómalos",
+      ],
+      narration:
+        "En la práctica, el Machine Learning sirve para tres grandes familias de problemas. Predecir valores numéricos, como ventas o demanda. Clasificar categorías, como spam o tipo de cliente. Y detectar anomalías, como fraude o fallas en equipos. En Latinoamérica ya se usa en agricultura, finanzas, salud y educación.",
+    },
+    {
+      title: "Qué vas a lograr en este curso",
+      bullets: [
+        "Entender los conceptos clave sin jerga innecesaria",
+        "Conocer los tipos de aprendizaje y cuándo usar cada uno",
+        "Diseñar tu primer proyecto con una guía paso a paso",
+      ],
+      narration:
+        "Al terminar este curso vas a poder explicar qué es Machine Learning con tus propias palabras. Vas a distinguir los tipos de aprendizaje, y saber cuál conviene según tu problema. Y vas a tener una hoja de ruta clara para tu primer proyecto. Sigamos con la siguiente lección.",
+    },
+  ]),
+
+  tiposAprendizaje: presentation([
+    {
+      title: "Los tres paradigmas del ML",
+      highlight: "Supervisado · No supervisado · Por refuerzo",
+      bullets: [
+        "Supervisado: datos con respuesta correcta",
+        "No supervisado: descubre grupos y patrones",
+        "Por refuerzo: aprende mediante recompensas",
+      ],
+      narration:
+        "Existen tres grandes formas de aprender con datos. El aprendizaje supervisado usa ejemplos con respuesta conocida. El no supervisado explora datos sin etiquetas. Y el aprendizaje por refuerzo entrena agentes que maximizan recompensas. En negocios, el supervisado es el más frecuente.",
+    },
+    {
+      title: "Aprendizaje supervisado",
+      bullets: [
+        "Clasificación: predecir categorías",
+        "Regresión: predecir valores numéricos",
+        "Ejemplos: spam, churn, scoring crediticio",
+      ],
+      narration:
+        "En el aprendizaje supervisado, el modelo aprende de ejemplos etiquetados. Si la salida es una categoría, hablamos de clasificación. Por ejemplo, detectar si un email es spam. Si la salida es un número, hablamos de regresión. Por ejemplo, estimar el precio de un producto.",
+    },
+    {
+      title: "Aprendizaje no supervisado y por refuerzo",
+      bullets: [
+        "No supervisado: segmentación y detección de patrones",
+        "Por refuerzo: robots, juegos, optimización",
+        "Cada uno resuelve problemas distintos",
+      ],
+      narration:
+        "El aprendizaje no supervisado agrupa clientes por comportamiento, o detecta patrones ocultos, sin que nadie le diga la respuesta correcta. El aprendizaje por refuerzo se usa cuando un agente aprende probando acciones y recibiendo recompensas. Es común en robótica, juegos y sistemas de recomendación avanzados.",
+    },
+    {
+      title: "Cómo elegir el enfoque correcto",
+      bullets: [
+        "¿Tenés etiquetas en tus datos? → Supervisado",
+        "¿Querés descubrir grupos? → No supervisado",
+        "¿Hay acciones y recompensas? → Refuerzo",
+      ],
+      narration:
+        "Para elegir el enfoque correcto, hacete tres preguntas. Primero: ¿tengo datos con etiquetas? Si la respuesta es sí, el camino suele ser el supervisado. Segundo: ¿quiero descubrir grupos o patrones sin saber de antemano las categorías? Entonces, no supervisado. Tercero: ¿mi problema implica decisiones secuenciales con recompensas? Ahí entra el refuerzo. Con esto cerramos los fundamentos teóricos. En el próximo módulo verás cómo llevarlo a un proyecto real.",
+    },
+  ]),
+};

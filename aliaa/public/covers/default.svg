@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <circle cx="400" cy="200" r="80" fill="#ffffff" fill-opacity="0.12"/>
+  <text x="400" y="215" fill="#ffffff" font-family="system-ui, sans-serif" font-size="56" font-weight="800" text-anchor="middle">ALIAA</text>
+  <text x="400" y="280" fill="#ffffff" fill-opacity="0.8" font-family="system-ui, sans-serif" font-size="20" text-anchor="middle">Inteligencia Artificial Aplicada</text>
+</svg>
