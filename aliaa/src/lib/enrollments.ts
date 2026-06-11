@@ -49,9 +49,10 @@ export async function getEnrollment(
 }
 
 export function courseAccessLabel(
-  progress: number
+  progress: number | string | null | undefined
 ): "Comenzar curso" | "Continuar curso" | "Revisar curso" {
-  if (progress >= 100) return "Revisar curso";
-  if (progress > 0) return "Continuar curso";
+  const pct = Number(progress ?? 0);
+  if (pct >= 100) return "Revisar curso";
+  if (pct > 0) return "Continuar curso";
   return "Comenzar curso";
 }
