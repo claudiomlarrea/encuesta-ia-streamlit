@@ -3,6 +3,8 @@ import { Plus, Edit, Eye } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { StarRatingDisplay } from "@/components/courses/star-rating-display";
+import { getRatingsSummaryByCourseIds } from "@/lib/course-ratings";
 import { getAllCourses, getEnrollmentCount } from "@/lib/courses";
 import type { Metadata } from "next";
 
@@ -12,11 +14,13 @@ export const metadata: Metadata = {
 
 export default async function AdminCursosPage() {
   const courses = await getAllCourses();
+  const ratings = await getRatingsSummaryByCourseIds(courses.map((c) => c.id));
 
   const coursesWithCounts = await Promise.all(
     courses.map(async (course) => ({
       ...course,
       inscritos: await getEnrollmentCount(course.id),
+      rating: ratings[course.id],
     }))
   );
 
@@ -61,6 +65,17 @@ export default async function AdminCursosPage() {
                   </div>
                   <p className="mt-1 text-sm text-[var(--aliaa-muted-foreground)]">
                     {course.inscritos} inscritos · {course.gratuito ? "Gratis" : `$${course.precio} USD`}
+                    {course.rating && course.rating.total > 0 && (
+                      <>
+                        {" "}
+                        ·{" "}
+                        <StarRatingDisplay
+                          value={course.rating.promedio}
+                          total={course.rating.total}
+                          className="inline-flex"
+                        />
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2">

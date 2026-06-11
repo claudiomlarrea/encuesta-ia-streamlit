@@ -10,6 +10,7 @@
     "setup:supabase": "node scripts/setup-supabase.mjs",
     "promote:admin": "node scripts/promote-admin.mjs",
     "db:quiz-policies": "node scripts/apply-quiz-policies.mjs",
+    "db:ratings": "node scripts/apply-migration-007.mjs",
     "seed:ml": "node scripts/seed-ml-course.mjs",
     "seed:ia": "node scripts/generate-ia-audio.mjs --force && node scripts/seed-ia-course.mjs",
     "seed:prompts": "node scripts/generate-prompts-audio.mjs --force && node scripts/seed-prompts-course.mjs",

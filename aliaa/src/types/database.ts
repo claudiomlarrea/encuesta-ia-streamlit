@@ -122,6 +122,16 @@ export interface Quiz {
   puntaje_aprobacion: number;
 }
 
+export interface CourseRating {
+  id: string;
+  user_id: string;
+  course_id: string;
+  estrellas: number;
+  comentario: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface QuizQuestion {
   id: string;
   quiz_id: string;

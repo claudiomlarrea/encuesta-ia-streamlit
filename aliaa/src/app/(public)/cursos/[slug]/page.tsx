@@ -7,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PaymentButtons } from "@/components/payments/payment-buttons";
 import { EnrollButton } from "@/components/courses/enroll-button";
 import { CourseCover } from "@/components/courses/course-cover";
+import { StarRatingDisplay } from "@/components/courses/star-rating-display";
+import { getRatingsSummaryByCourseIds } from "@/lib/course-ratings";
 import { formatPrice, sumLessonMinutes } from "@/lib/utils";
 import { LEVEL_LABELS, LESSON_TYPE_LABELS } from "@/lib/constants";
 import { getCourseBySlug, getCourseModules } from "@/lib/courses";
@@ -37,6 +39,8 @@ export default async function CursoDetallePage({ params }: PageProps) {
   const { data: { user } } = await supabase.auth.getUser();
   const enrollment = user ? await getEnrollment(user.id, course.id) : null;
   const enrolled = !!enrollment;
+  const ratings = await getRatingsSummaryByCourseIds([course.id]);
+  const rating = ratings[course.id];
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -48,6 +52,11 @@ export default async function CursoDetallePage({ params }: PageProps) {
             {course.gratuito && <Badge variant="success">Gratuito</Badge>}
           </div>
           <h1 className="text-3xl font-bold">{course.titulo}</h1>
+          {rating && rating.total > 0 && (
+            <div className="mt-3">
+              <StarRatingDisplay value={rating.promedio} total={rating.total} size="md" />
+            </div>
+          )}
           <p className="mt-4 text-[var(--aliaa-muted-foreground)]">
             {course.descripcion || course.descripcion_corta}
           </p>

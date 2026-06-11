@@ -1,4 +1,5 @@
 import { CourseCatalog } from "@/components/courses/course-catalog";
+import { getRatingsSummaryByCourseIds } from "@/lib/course-ratings";
 import { getPublishedCourses } from "@/lib/courses";
 import type { Metadata } from "next";
 
@@ -8,6 +9,7 @@ export const metadata: Metadata = {
 
 export default async function CursosPage() {
   const courses = await getPublishedCourses();
+  const ratings = await getRatingsSummaryByCourseIds(courses.map((c) => c.id));
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -18,7 +20,7 @@ export default async function CursosPage() {
         </p>
       </div>
 
-      <CourseCatalog courses={courses} />
+      <CourseCatalog courses={courses} ratings={ratings} />
     </div>
   );
 }

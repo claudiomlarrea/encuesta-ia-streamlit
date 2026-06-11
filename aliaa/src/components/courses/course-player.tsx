@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { PresentationPlayer, parsePresentation } from "@/components/courses/presentation-player";
+import { CourseRatingForm } from "@/components/courses/course-rating-form";
 import { QuizPlayer } from "@/components/courses/quiz-player";
 import { LessonMarkdown } from "@/components/courses/lesson-markdown";
 import { LESSON_TYPE_LABELS } from "@/lib/constants";
@@ -32,6 +33,7 @@ interface CoursePlayerProps {
   userId: string;
   quizzes?: Record<string, QuizWithQuestions>;
   initialCertificateId?: string | null;
+  initialUserRating?: { estrellas: number; comentario: string | null } | null;
 }
 
 const TYPE_ICONS: Record<string, typeof Play> = {
@@ -49,6 +51,7 @@ export function CoursePlayer({
   userId,
   quizzes = {},
   initialCertificateId = null,
+  initialUserRating = null,
 }: CoursePlayerProps) {
   const router = useRouter();
   const allLessons = modules.flatMap((m) => m.lessons ?? []);
@@ -195,21 +198,28 @@ export function CoursePlayer({
 
       {progress === 100 && (
         <Card className="mb-6 border-emerald-500 bg-emerald-50 dark:bg-emerald-900/20">
-          <CardContent className="flex items-center gap-4 p-6">
-            <Award className="h-10 w-10 shrink-0 text-emerald-600" />
-            <div className="flex-1">
-              <h2 className="font-semibold text-emerald-800 dark:text-emerald-200">
-                ¡Curso completado!
-              </h2>
-              <p className="text-sm text-emerald-700 dark:text-emerald-300">
-                Felicitaciones, completaste todas las lecciones.
-              </p>
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <Award className="h-10 w-10 shrink-0 text-emerald-600" />
+              <div className="flex-1">
+                <h2 className="font-semibold text-emerald-800 dark:text-emerald-200">
+                  ¡Curso completado!
+                </h2>
+                <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                  Felicitaciones, completaste todas las lecciones.
+                </p>
+              </div>
+              {certificateId && (
+                <Link href={`/dashboard/certificados/${certificateId}`}>
+                  <Button>Ver certificado</Button>
+                </Link>
+              )}
             </div>
-            {certificateId && (
-              <Link href={`/dashboard/certificados/${certificateId}`}>
-                <Button>Ver certificado</Button>
-              </Link>
-            )}
+            <CourseRatingForm
+              courseId={course.id}
+              initialStars={initialUserRating?.estrellas ?? 0}
+              initialComment={initialUserRating?.comentario}
+            />
           </CardContent>
         </Card>
       )}

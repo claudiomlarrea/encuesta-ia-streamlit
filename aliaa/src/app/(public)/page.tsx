@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CourseCard } from "@/components/courses/course-card";
 import { SITE_FULL_NAME } from "@/lib/constants";
+import { getRatingsSummaryByCourseIds } from "@/lib/course-ratings";
 import { getPublishedCourses } from "@/lib/courses";
 
 const FEATURES = [
@@ -25,6 +26,7 @@ const FEATURES = [
 
 export default async function HomePage() {
   const courses = await getPublishedCourses();
+  const ratings = await getRatingsSummaryByCourseIds(courses.map((c) => c.id));
 
   const stats = [
     {
@@ -100,7 +102,7 @@ export default async function HomePage() {
           {courses.length > 0 ? (
             <div className="mx-auto grid max-w-lg gap-6 sm:max-w-none sm:grid-cols-2 lg:grid-cols-3">
               {courses.map((course) => (
-                <CourseCard key={course.id} course={course} />
+                <CourseCard key={course.id} course={course} rating={ratings[course.id]} />
               ))}
             </div>
           ) : (

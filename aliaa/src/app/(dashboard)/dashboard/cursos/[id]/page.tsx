@@ -1,6 +1,7 @@
 import { redirect, notFound } from "next/navigation";
 import { CoursePlayer } from "@/components/courses/course-player";
 import { getCourseById, getCourseModules } from "@/lib/courses";
+import { getUserCourseRating } from "@/lib/course-ratings";
 import { getLessonProgress, isEnrolled } from "@/lib/enrollments";
 import { getQuizzesForLessons } from "@/lib/quizzes";
 import { createClient } from "@/lib/supabase/server";
@@ -42,14 +43,24 @@ export default async function CursoPlayerPage({ params }: PageProps) {
   const quizzes = await getQuizzesForLessons(lessonIds);
 
   let initialCertificateId: string | null = null;
+  let initialUserRating: { estrellas: number; comentario: string | null } | null = null;
   if (progress === 100) {
-    const { data: cert } = await supabase
-      .from("certificates")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("course_id", id)
-      .single();
+    const [{ data: cert }, userRating] = await Promise.all([
+      supabase
+        .from("certificates")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("course_id", id)
+        .single(),
+      getUserCourseRating(user.id, id),
+    ]);
     initialCertificateId = cert?.id ?? null;
+    if (userRating) {
+      initialUserRating = {
+        estrellas: userRating.estrellas,
+        comentario: userRating.comentario,
+      };
+    }
   }
 
   return (
@@ -60,6 +71,7 @@ export default async function CursoPlayerPage({ params }: PageProps) {
       userId={user.id}
       quizzes={quizzes}
       initialCertificateId={initialCertificateId}
+      initialUserRating={initialUserRating}
     />
   );
 }

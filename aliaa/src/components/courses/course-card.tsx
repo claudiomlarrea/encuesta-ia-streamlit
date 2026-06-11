@@ -1,18 +1,21 @@
 import Link from "next/link";
-import { Clock, Users, Star } from "lucide-react";
+import { Clock } from "lucide-react";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CourseCover } from "@/components/courses/course-cover";
+import { StarRatingDisplay } from "@/components/courses/star-rating-display";
 import { formatPrice } from "@/lib/utils";
 import { LEVEL_LABELS } from "@/lib/constants";
+import type { CourseRatingSummary } from "@/lib/course-ratings";
 import type { Course } from "@/types/database";
 
 interface CourseCardProps {
   course: Course;
+  rating?: CourseRatingSummary;
 }
 
-export function CourseCard({ course }: CourseCardProps) {
+export function CourseCard({ course, rating }: CourseCardProps) {
   return (
     <Card className="group overflow-hidden transition-shadow hover:shadow-lg">
       <div className="relative aspect-video overflow-hidden bg-[var(--aliaa-muted)]">
@@ -45,14 +48,13 @@ export function CourseCard({ course }: CourseCardProps) {
               {course.duracion_horas}h
             </span>
           )}
-          <span className="flex items-center gap-1">
-            <Users className="h-3.5 w-3.5" />
-            Estudiantes
-          </span>
-          <span className="flex items-center gap-1">
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-            4.8
-          </span>
+          {rating && rating.total > 0 && (
+            <StarRatingDisplay
+              value={rating.promedio}
+              total={rating.total}
+              showValue
+            />
+          )}
         </div>
       </CardContent>
       <CardFooter className="flex items-center justify-between p-4 pt-0">

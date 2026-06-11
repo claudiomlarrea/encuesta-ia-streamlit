@@ -4,13 +4,15 @@ import { useState } from "react";
 import { CourseCard } from "@/components/courses/course-card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { CourseRatingSummary } from "@/lib/course-ratings";
 import type { Course } from "@/types/database";
 
 interface CourseCatalogProps {
   courses: Course[];
+  ratings?: Record<string, CourseRatingSummary>;
 }
 
-export function CourseCatalog({ courses }: CourseCatalogProps) {
+export function CourseCatalog({ courses, ratings = {} }: CourseCatalogProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   const visible =
@@ -55,7 +57,7 @@ export function CourseCatalog({ courses }: CourseCatalogProps) {
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {visible.map((course) => (
-          <CourseCard key={course.id} course={course} />
+          <CourseCard key={course.id} course={course} rating={ratings[course.id]} />
         ))}
       </div>
     </>
