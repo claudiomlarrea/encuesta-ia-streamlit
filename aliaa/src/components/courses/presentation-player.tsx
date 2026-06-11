@@ -32,9 +32,20 @@ export function parsePresentation(content: string | null): PresentationData | nu
 interface PresentationPlayerProps {
   content: string;
   lessonTitle: string;
+  /** Inicia reproducción continua al montar (p. ej. al pasar de lección automáticamente) */
+  autoStart?: boolean;
+  /** Se llama al terminar el audio del último slide con reproducción continua activa */
+  onComplete?: () => void;
+  onAutoStartConsumed?: () => void;
 }
 
-export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerProps) {
+export function PresentationPlayer({
+  content,
+  lessonTitle,
+  autoStart = false,
+  onComplete,
+  onAutoStartConsumed,
+}: PresentationPlayerProps) {
   const data = parsePresentation(content);
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -45,6 +56,14 @@ export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerP
   const slides = data?.slides ?? [];
   const slide = slides[current];
   const hasAudio = !!slide?.audio;
+
+  const advanceAfterSlide = useCallback(() => {
+    if (current < slides.length - 1) {
+      setTimeout(() => setCurrent((c) => c + 1), SLIDE_PAUSE_MS);
+    } else {
+      onComplete?.();
+    }
+  }, [current, slides.length, onComplete]);
 
   const stopAudio = useCallback(() => {
     const el = audioRef.current;
@@ -68,16 +87,14 @@ export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerP
     if (spanish) utterance.voice = spanish;
     utterance.onend = () => {
       setPlaying(false);
-      if (autoPlay && current < slides.length - 1) {
-        setTimeout(() => setCurrent((c) => c + 1), SLIDE_PAUSE_MS);
-      }
+      if (autoPlay) advanceAfterSlide();
     };
     utterance.onerror = () => setPlaying(false);
     setPlaying(true);
     window.speechSynthesis.speak(utterance);
     // Chrome bug: resume after speak
     window.speechSynthesis.resume();
-  }, [autoPlay, current, slides.length]);
+  }, [autoPlay, advanceAfterSlide]);
 
   const playNarration = useCallback(() => {
     if (!slide) return;
@@ -98,6 +115,24 @@ export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerP
   }, [stopAudio]);
 
   useEffect(() => {
+    setCurrent(0);
+    setPlaying(false);
+    setAutoPlay(false);
+    stopAudio();
+  }, [content, lessonTitle, stopAudio]);
+
+  useEffect(() => {
+    if (!autoStart) return;
+    setAutoPlay(true);
+    const t = setTimeout(() => {
+      playNarration();
+      onAutoStartConsumed?.();
+    }, 400);
+    return () => clearTimeout(t);
+  }, [autoStart]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (current === 0) return;
     stopAudio();
     if (autoPlay && slide) {
       const t = setTimeout(playNarration, 300);
@@ -113,9 +148,7 @@ export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerP
         ref={audioRef}
         onEnded={() => {
           setPlaying(false);
-          if (autoPlay && current < slides.length - 1) {
-            setTimeout(() => setCurrent((c) => c + 1), SLIDE_PAUSE_MS);
-          }
+          if (autoPlay) advanceAfterSlide();
         }}
         onError={() => setPlaying(false)}
         preload="auto"
@@ -181,7 +214,15 @@ export function PresentationPlayer({ content, lessonTitle }: PresentationPlayerP
         <Button
           size="sm"
           className="bg-teal-500 text-white hover:bg-teal-600"
-          onClick={() => playing ? stopAudio() : playNarration()}
+          onClick={() => {
+            if (playing) {
+              stopAudio();
+              setAutoPlay(false);
+            } else {
+              setAutoPlay(true);
+              playNarration();
+            }
+          }}
         >
           {playing ? (
             <><VolumeX className="mr-2 h-4 w-4" /> Detener</>

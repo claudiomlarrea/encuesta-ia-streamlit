@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { SITE_DESCRIPTION, SITE_FULL_NAME } from "@/lib/constants";
 import "./globals.css";
@@ -34,6 +35,7 @@ export default function RootLayout({
     <html lang="es" suppressHydrationWarning className={`${inter.variable} h-full`}>
       <body className="min-h-full flex flex-col antialiased">
         <ThemeProvider>{children}</ThemeProvider>
+        <Analytics />
       </body>
     </html>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Play, FileText, CheckCircle, MessageSquare, BookOpen, Award } from "lucide-react";
@@ -61,12 +61,31 @@ export function CoursePlayer({
   );
   const [marking, setMarking] = useState(false);
   const [certificateId, setCertificateId] = useState<string | null>(initialCertificateId);
+  const [autoStartNextLesson, setAutoStartNextLesson] = useState(false);
 
   const Icon = TYPE_ICONS[activeLesson?.tipo] ?? Play;
   const activeQuiz = activeLesson ? quizzes[activeLesson.id] : undefined;
   const isEvalWithQuiz = activeLesson?.tipo === "evaluacion" && !!activeQuiz;
 
-  async function finishLesson(lessonId: string) {
+  async function tryGenerateCertificate(pct: number) {
+    if (pct !== 100 || certificateId) return;
+    const res = await fetch("/api/certificates/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courseId: course.id }),
+    });
+    if (res.ok) {
+      const { certificate } = await res.json();
+      setCertificateId(certificate.id);
+    }
+  }
+
+  async function completeLesson(
+    lessonId: string,
+    options?: { navigateToNext?: boolean }
+  ): Promise<Set<string>> {
+    if (completedIds.has(lessonId)) return completedIds;
+
     const supabase = createClient();
     await supabase.from("lesson_progress").upsert({
       user_id: userId,
@@ -93,22 +112,24 @@ export function CoursePlayer({
       .eq("user_id", userId)
       .eq("course_id", course.id);
 
-    if (pct === 100) {
-      const res = await fetch("/api/certificates/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ courseId: course.id }),
-      });
-      if (res.ok) {
-        const { certificate } = await res.json();
-        setCertificateId(certificate.id);
-      }
+    await tryGenerateCertificate(pct);
+
+    if (options?.navigateToNext !== false) {
+      const next = allLessons.find((l) => !newCompleted.has(l.id));
+      if (next) setActiveLesson({ ...next, completado: false });
     }
 
-    const next = allLessons.find((l) => !newCompleted.has(l.id));
-    if (next) setActiveLesson({ ...next, completado: false });
     router.refresh();
+    return newCompleted;
   }
+
+  async function finishLesson(lessonId: string) {
+    await completeLesson(lessonId);
+  }
+
+  useEffect(() => {
+    if (progress === 100) tryGenerateCertificate(100);
+  }, [progress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function markComplete() {
     if (!activeLesson || completedIds.has(activeLesson.id)) return;
@@ -129,6 +150,39 @@ export function CoursePlayer({
   }
 
   const presentation = parsePresentation(activeLesson.contenido_texto);
+
+  function selectLesson(lesson: LessonWithProgress, autoStart = false) {
+    if (
+      activeLesson &&
+      activeLesson.id !== lesson.id &&
+      !completedIds.has(activeLesson.id) &&
+      ["texto", "actividad", "pdf"].includes(activeLesson.tipo)
+    ) {
+      void completeLesson(activeLesson.id, { navigateToNext: false });
+    }
+    setAutoStartNextLesson(autoStart);
+    setActiveLesson(lesson);
+  }
+
+  async function handlePresentationComplete() {
+    const idx = allLessons.findIndex((l) => l.id === activeLesson.id);
+    let updatedCompleted = completedIds;
+
+    if (!completedIds.has(activeLesson.id)) {
+      setMarking(true);
+      updatedCompleted = await completeLesson(activeLesson.id, { navigateToNext: false });
+      setMarking(false);
+    }
+
+    if (idx < 0 || idx >= allLessons.length - 1) return;
+    const next = allLessons[idx + 1];
+    const nextIsPresentation =
+      next.tipo === "video" && !!parsePresentation(next.contenido_texto);
+    selectLesson(
+      { ...next, completado: updatedCompleted.has(next.id) },
+      nextIsPresentation
+    );
+  }
 
   return (
     <div>
@@ -166,8 +220,12 @@ export function CoursePlayer({
             <CardContent className="p-0">
               {activeLesson.tipo === "video" && presentation ? (
                 <PresentationPlayer
+                  key={activeLesson.id}
                   content={activeLesson.contenido_texto!}
                   lessonTitle={activeLesson.titulo}
+                  autoStart={autoStartNextLesson}
+                  onAutoStartConsumed={() => setAutoStartNextLesson(false)}
+                  onComplete={() => void handlePresentationComplete()}
                 />
               ) : activeLesson.tipo === "video" ? (
                 <div className="flex aspect-video items-center justify-center rounded-t-xl bg-black">
@@ -207,11 +265,21 @@ export function CoursePlayer({
                 <div className="p-8 text-center">
                   <CheckCircle className="mx-auto h-12 w-12 text-emerald-500" />
                   <h3 className="mt-4 text-lg font-semibold">Evaluación aprobada</h3>
-                  {certificateId && (
+                  {progress < 100 && (
+                    <p className="mt-2 text-sm text-[var(--aliaa-muted-foreground)]">
+                      Progreso {progress}%. Escuchá o revisá las lecciones pendientes en el menú
+                      lateral para llegar al 100% y obtener tu certificado.
+                    </p>
+                  )}
+                  {certificateId ? (
                     <Link href={`/dashboard/certificados/${certificateId}`} className="mt-4 inline-block">
                       <Button>Ver certificado</Button>
                     </Link>
-                  )}
+                  ) : progress === 100 ? (
+                    <Button className="mt-4" onClick={() => tryGenerateCertificate(100)}>
+                      Generar certificado
+                    </Button>
+                  ) : null}
                 </div>
               )}
 
@@ -274,7 +342,7 @@ export function CoursePlayer({
                     return (
                       <button
                         key={lec.id}
-                        onClick={() => setActiveLesson(lec)}
+                        onClick={() => selectLesson(lec)}
                         className={cn(
                           "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors",
                           activeLesson.id === lec.id

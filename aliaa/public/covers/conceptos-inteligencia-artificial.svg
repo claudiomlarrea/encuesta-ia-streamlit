@@ -30,7 +30,7 @@
     <circle cx="498" cy="270" r="5" fill="#fde68a"/>
   </g>
   <rect x="0" y="340" width="800" height="110" fill="url(#glow)"/>
-  <text x="48" y="390" fill="#ffffff" font-family="system-ui, sans-serif" font-size="34" font-weight="700">Conceptos en IA</text>
-  <text x="48" y="422" fill="#ffffff" fill-opacity="0.85" font-family="system-ui, sans-serif" font-size="18">Tokens · IA generativa · 15 min</text>
+  <text x="48" y="390" fill="#ffffff" font-family="system-ui, sans-serif" font-size="30" font-weight="700">Conocimientos en IA</text>
+  <text x="48" y="422" fill="#ffffff" fill-opacity="0.85" font-family="system-ui, sans-serif" font-size="18">Tokens ï¿½ IA generativa ï¿½ 15 min</text>
   <text x="720" y="48" fill="#ffffff" fill-opacity="0.7" font-family="system-ui, sans-serif" font-size="16" font-weight="700" text-anchor="end">ALIAA</text>
 </svg>

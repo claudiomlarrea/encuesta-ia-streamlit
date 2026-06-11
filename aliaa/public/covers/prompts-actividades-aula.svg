@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#047857"/>
+      <stop offset="50%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="24"/></filter>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <circle cx="120" cy="80" r="90" fill="#ffffff" opacity="0.08" filter="url(#blur)"/>
+  <circle cx="700" cy="370" r="110" fill="#a7f3d0" opacity="0.18" filter="url(#blur)"/>
+  <g opacity="0.95">
+    <rect x="200" y="110" width="400" height="230" rx="18" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2"/>
+    <rect x="240" y="150" width="180" height="12" rx="6" fill="#ffffff" fill-opacity="0.75"/>
+    <rect x="240" y="180" width="320" height="8" rx="4" fill="#ffffff" fill-opacity="0.45"/>
+    <rect x="240" y="200" width="280" height="8" rx="4" fill="#ffffff" fill-opacity="0.35"/>
+    <rect x="240" y="240" width="120" height="36" rx="8" fill="#ffffff" fill-opacity="0.22"/>
+    <rect x="380" y="240" width="120" height="36" rx="8" fill="#ffffff" fill-opacity="0.18"/>
+    <circle cx="560" cy="258" r="22" fill="#ffffff" fill-opacity="0.25"/>
+    <path d="M550 258 L558 266 L572 248" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="40" y="400" fill="#ffffff" fill-opacity="0.9" font-family="system-ui,sans-serif" font-size="22" font-weight="700">ALIAA</text>
+  <text x="40" y="430" fill="#ffffff" fill-opacity="0.75" font-family="system-ui,sans-serif" font-size="14">Educación · 6×5 min</text>
+</svg>

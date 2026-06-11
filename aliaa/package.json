@@ -12,6 +12,14 @@
     "db:quiz-policies": "node scripts/apply-quiz-policies.mjs",
     "seed:ml": "node scripts/seed-ml-course.mjs",
     "seed:ia": "node scripts/generate-ia-audio.mjs --force && node scripts/seed-ia-course.mjs",
+    "seed:prompts": "node scripts/generate-prompts-audio.mjs --force && node scripts/seed-prompts-course.mjs",
+    "seed:aula": "node scripts/generate-aula-audio.mjs --force && node scripts/seed-aula-course.mjs",
+    "seed:admin": "node scripts/generate-admin-audio.mjs --force && node scripts/seed-admin-course.mjs",
+    "seed:mineria": "node scripts/generate-mineria-audio.mjs --force && node scripts/seed-mineria-course.mjs",
+    "seed:reuniones": "node scripts/generate-reuniones-audio.mjs --force && node scripts/seed-reuniones-course.mjs",
+    "sync:progress": "node scripts/sync-progress-after-eval.mjs",
+    "users:list": "node scripts/list-users.mjs",
+    "users:delete": "node scripts/delete-user.mjs",
     "generate:audio": "node scripts/generate-lesson-audio.mjs --force && node scripts/seed-ml-course.mjs"
   },
   "dependencies": {
@@ -19,6 +27,7 @@
     "@paypal/react-paypal-js": "^10.0.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.0",
+    "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",

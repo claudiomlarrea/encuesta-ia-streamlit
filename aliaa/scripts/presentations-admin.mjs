@@ -1,0 +1,140 @@
+export function presentation(slides) {
+  return JSON.stringify({ format: "presentation", slides });
+}
+
+export const PRESENTATIONS = {
+  iaEnAdministracion: presentation([
+    {
+      title: "La IA en tu trabajo administrativo",
+      highlight: "Un asistente para redactar, resumir y organizar — no un reemplazo",
+      bullets: [
+        "Mails, informes, actas, circulares y respuestas frecuentes",
+        "Resúmenes de documentos largos en minutos",
+        "Tablas y listas a partir de texto desordenado",
+      ],
+      narration:
+        "Si trabajás en administración, en un ministerio, una empresa o una universidad, la inteligencia artificial puede ayudarte con tareas que hoy consumen horas. Redactar correos formales, preparar minutas de reunión, resumir informes extensos o armar tablas con fechas y responsables. No reemplaza tu criterio ni tu firma. Es un asistente que acelera el borrador para que vos revises y apruebes.",
+    },
+    {
+      title: "Qué sí y qué no delegar a la IA",
+      bullets: [
+        "Sí: borradores, resúmenes, reformulaciones, checklists",
+        "No: decisiones legales, datos sensibles sin anonimizar",
+        "Siempre: revisión humana antes de enviar o publicar",
+      ],
+      narration:
+        "Delegá a la IA lo repetitivo y lo de formato. Pedile un borrador de mail, un resumen de diez páginas o una lista de tareas. No delegues decisiones que requieren responsabilidad institucional: sanciones, contratos, respuestas legales vinculantes. Y nunca pegues datos personales sensibles sin anonimizar: DNI, historias clínicas, sueldos, expedientes reservados. La regla de oro: la IA propone, vos validás.",
+    },
+    {
+      title: "Herramientas al alcance de tu mano",
+      bullets: [
+        "ChatGPT, Copilot, Gemini u otros asistentes con chat",
+        "No hace falta programar ni instalar software complejo",
+        "Funciona desde el navegador en la PC del trabajo o en casa",
+      ],
+      narration:
+        "No necesitás ser técnico. Los asistentes de IA se usan como un chat: escribís en español lo que necesitás y recibís una respuesta. Muchas instituciones ya permiten Copilot en Microsoft o herramientas similares. Si tu área aún no tiene política clara, consultá con sistemas o con tu superior antes de pegar documentos internos. Este curso te enseña a usar la herramienta con criterio administrativo.",
+    },
+  ]),
+
+  documentosAdministrativos: presentation([
+    {
+      title: "Redactar con la fórmula CTF",
+      highlight: "Contexto + Tarea + Formato = documentos útiles al primer intento",
+      bullets: [
+        "Contexto: área, destinatario y situación",
+        "Tarea: qué debe redactar o transformar la IA",
+        "Formato: extensión, tono formal y estructura",
+      ],
+      narration:
+        "La fórmula que mejor funciona en administración tiene tres partes. Contexto: sos del área de compras de un hospital y necesitás comunicar un cambio de horario de atención. Tarea: redactá una circular para personal interno. Formato: máximo doscientas palabras, tono institucional, con asunto y cuerpo separados. Con eso la IA entrega algo cercano a lo que enviarías, y vos solo ajustás detalles.",
+    },
+    {
+      title: "Mails, notas y circulares",
+      bullets: [
+        "Recordatorios de plazos sin sonar amenazantes",
+        "Respuestas a consultas frecuentes de usuarios internos",
+        "Notas para superiores con hechos, no opiniones",
+      ],
+      narration:
+        "Ejemplo de mail: un proveedor no envió la documentación pedida hace quince días. En lugar de escribir ayudame con un mail, probá: redactá un correo cordial al proveedor X recordando el envío de la factura y el remito, plazo vencido hace cinco días, tono profesional, máximo ciento veinte palabras. Para circulares internas, indicá audiencia: personal administrativo sin formación técnica. La IA adapta el vocabulario.",
+    },
+    {
+      title: "Actas y minutas de reunión",
+      bullets: [
+        "Pegá notas desordenadas; pedí estructura formal",
+        "Incluí asistentes, acuerdos, plazos y responsables",
+        "Revisá nombres y fechas antes de archivar",
+      ],
+      narration:
+        "Después de una reunión, pegá tus apuntes sueltos y pedí: convertí estas notas en acta formal con fecha, asistentes, temas tratados, acuerdos y responsable de cada tarea. Formato con numeración. La IA ordena el caos. Tu trabajo es verificar que los nombres, las fechas y los montos sean exactos. Un error en un acta puede generar confusiones después.",
+    },
+  ]),
+
+  organizarInformacion: presentation([
+    {
+      title: "Resumir documentos largos",
+      highlight: "De diez páginas a cinco puntos en un minuto",
+      bullets: [
+        "Informes, normativas, expedientes, memorandos",
+        "Pedí enfoque: decisiones, plazos, riesgos",
+        "Indicá audiencia: dirección, equipo técnico, público general",
+      ],
+      narration:
+        "Un trámite administrativo suele implicar leer mucho. Pedí: resumí este documento en cinco viñetas para una directora sin tiempo técnico. Enfocate en decisiones pendientes y plazos legales. Máximo veinte palabras por viñeta. Si el documento es muy largo, dividilo en partes. La IA no reemplaza la lectura completa cuando hay responsabilidad legal, pero te da una brújula para priorizar.",
+    },
+    {
+      title: "De texto a tabla",
+      bullets: [
+        "Proveedores, montos, fechas y estados",
+        "Cronogramas con responsable y fecha límite",
+        "Comparar opciones en columnas claras",
+      ],
+      narration:
+        "Cuando tenés información dispersa en párrafos, pedí formato tabla. Ejemplo: a partir del siguiente texto, armá una tabla con columnas proveedor, monto, fecha de vencimiento y observaciones. O: convertí esta lista de tareas en tabla con responsable, plazo y prioridad alta o media. Las tablas facilitan seguimiento en Excel o en reuniones de equipo.",
+    },
+    {
+      title: "Checklists y planificación semanal",
+      bullets: [
+        "Priorizar tareas del área administrativa",
+        "Preparar reuniones con agenda sugerida",
+        "Listar documentación requerida para un trámite",
+      ],
+      narration:
+        "La IA también ayuda a pensar el orden del trabajo. Pedí: soy responsable de mesa de entradas. Listá las diez tareas típicas de una semana y sugerí orden por urgencia. O: prepará una checklist de documentación para licencia administrativa según este reglamento. Siempre contrastá con la normativa vigente de tu institución. La IA puede omitir un requisito nuevo.",
+    },
+  ]),
+
+  buenasPracticas: presentation([
+    {
+      title: "Confidencialidad y datos sensibles",
+      bullets: [
+        "Anonimizá: nombres, DNI, direcciones, salarios",
+        "Consultá políticas de TI de tu institución",
+        "No subas expedientes reservados a herramientas públicas",
+      ],
+      narration:
+        "En gobierno y empresas manejás información sensible. Antes de pegar un texto en un asistente, preguntate si podrías mostrárselo a un desconocido en la calle. Si no, anonimizá: reemplazá nombres por Persona A, ocultá números de documento. Muchas instituciones ofrecen versiones empresariales de la IA con mayor privacidad. Si no la tenés, usá la IA solo con información pública o genérica.",
+    },
+    {
+      title: "Errores que conviene evitar",
+      bullets: [
+        "Confiar en fechas, montos o citas legales sin verificar",
+        "Enviar el primer borrador sin leer",
+        "Usar tono demasiado informal en comunicación oficial",
+      ],
+      narration:
+        "La IA inventa datos a veces. Se llama alucinación. Puede citar una ley que no existe o poner mal una fecha. En administración eso es grave. Revisá siempre cifras, artículos legales y nombres propios. Leé el tono: a veces suena demasiado coloquial para una nota oficial. Ajustá con un prompt corto: hacé el tono más formal y reemplazá la palabra X por Y.",
+    },
+    {
+      title: "Flujo recomendado y próximos pasos",
+      bullets: [
+        "1. Borrador con IA · 2. Revisión humana · 3. Envío o archivo",
+        "Guardá prompts que te funcionaron en tu equipo",
+        "Seguí con Cómo redactar prompts en ALIAA",
+      ],
+      narration:
+        "Adoptá un flujo simple. Primero, pedí el borrador con contexto, tarea y formato. Segundo, revisá como si fuera trabajo de un pasante: datos, tono, cumplimiento. Tercero, enviá o archivá. Compartí con tu equipo los prompts que den buenos resultados para mails, actas y resúmenes. En ALIAA podés continuar con el curso de redacción de prompts para profundizar. La productividad administrativa con IA se aprende con práctica y criterio.",
+    },
+  ]),
+};

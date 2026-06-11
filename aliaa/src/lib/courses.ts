@@ -1,14 +1,34 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Course, CourseLevel, Module, Lesson } from "@/types/database";
 
+const CATALOG_ORDER = [
+  "conceptos-inteligencia-artificial",
+  "como-redactar-prompts",
+  "prompts-actividades-aula",
+  "ia-para-reuniones",
+  "ia-para-equipos-administrativos",
+  "ia-para-equipos-de-mineria",
+  "fundamentos-machine-learning",
+] as const;
+
+function sortCoursesByCatalogOrder(courses: Course[]): Course[] {
+  const order = new Map<string, number>(
+    CATALOG_ORDER.map((slug, index) => [slug, index])
+  );
+  return [...courses].sort((a, b) => {
+    const indexA = order.get(a.slug) ?? CATALOG_ORDER.length;
+    const indexB = order.get(b.slug) ?? CATALOG_ORDER.length;
+    return indexA - indexB;
+  });
+}
+
 export async function getPublishedCourses(): Promise<Course[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("courses")
     .select("*")
-    .eq("publicado", true)
-    .order("created_at", { ascending: false });
-  return data ?? [];
+    .eq("publicado", true);
+  return sortCoursesByCatalogOrder(data ?? []);
 }
 
 export async function getAllCourses(): Promise<Course[]> {

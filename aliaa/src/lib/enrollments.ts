@@ -30,12 +30,28 @@ export async function getLessonProgress(userId: string, lessonIds: string[]) {
 }
 
 export async function isEnrolled(userId: string, courseId: string): Promise<boolean> {
+  const enrollment = await getEnrollment(userId, courseId);
+  return !!enrollment;
+}
+
+export async function getEnrollment(
+  userId: string,
+  courseId: string
+): Promise<Enrollment | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("enrollments")
-    .select("id")
+    .select("*")
     .eq("user_id", userId)
     .eq("course_id", courseId)
     .single();
-  return !!data;
+  return data;
+}
+
+export function courseAccessLabel(
+  progress: number
+): "Comenzar curso" | "Continuar curso" | "Revisar curso" {
+  if (progress >= 100) return "Revisar curso";
+  if (progress > 0) return "Continuar curso";
+  return "Comenzar curso";
 }

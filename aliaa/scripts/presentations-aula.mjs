@@ -1,0 +1,213 @@
+export function presentation(slides) {
+  return JSON.stringify({ format: "presentation", slides });
+}
+
+export const PRESENTATIONS = {
+  iaEnEducacion: presentation([
+    {
+      title: "La IA como aliada del docente",
+      highlight: "Personalizar, crear materiales y liberar tiempo — sin reemplazar tu criterio",
+      bullets: [
+        "Adaptar explicaciones al nivel de cada curso",
+        "Borrador de actividades, rúbricas y evaluaciones",
+        "Más tiempo para acompañar al estudiante en el aula",
+      ],
+      narration:
+        "La inteligencia artificial en educación no viene a reemplazar al docente. Viene a ampliar lo que podés hacer con el tiempo que tenés. Un asistente bien guiado puede ayudarte a adaptar explicaciones, proponer actividades, armar rúbricas o redactar consignas claras. Vos seguís decidiendo qué se enseña, cómo se evalúa y qué se publica en el aula. La IA acelera el borrador; el juicio pedagógico sigue siendo tuyo.",
+    },
+    {
+      title: "Beneficios y cuidados en el aula",
+      bullets: [
+        "Beneficios: personalización, recursos variados, apoyo a la creatividad",
+        "Riesgos: sesgos, privacidad de datos, dependencia excesiva",
+        "Clave: política clara del establecimiento y revisión humana",
+      ],
+      narration:
+        "Integrar IA tiene ventajas reales: contenidos más variados, apoyo para estudiantes con distintos ritmos y menos horas en tareas repetitivas de redacción. Pero también hay desafíos. Los modelos pueden sesgar respuestas, no todos los alumnos tienen el mismo acceso tecnológico y hay que cuidar los datos personales. Por eso cada propuesta generada con IA debe pasar por tu revisión antes de llegar al aula, y conviene alinear el uso con la normativa de tu institución.",
+    },
+    {
+      title: "Herramientas que ya podés usar",
+      bullets: [
+        "Chatbots: ChatGPT, Gemini, Copilot, Claude",
+        "Generadores de cuestionarios y resúmenes",
+        "Lectores y asistentes de accesibilidad",
+      ],
+      narration:
+        "No hace falta un laboratorio especial. Con un chat de IA accesible desde el navegador podés empezar hoy. ChatGPT, Gemini, Copilot o Claude son puntos de partida habituales. También existen herramientas para cuestionarios, corrección de textos o lectura asistida. En este curso el foco está en cómo pedirles cosas útiles para tu práctica docente, con prompts pensados para el aula.",
+    },
+  ]),
+
+  promptPedagogico: presentation([
+    {
+      title: "Qué es un prompt pedagógico",
+      highlight: "Una instrucción clara que guía a la IA hacia un objetivo de enseñanza",
+      bullets: [
+        "No es programación: es lenguaje natural preciso",
+        "Define qué necesitás para la clase o la evaluación",
+        "La calidad del prompt define la calidad del material",
+      ],
+      narration:
+        "Un prompt pedagógico es la instrucción que le das a un modelo de inteligencia artificial para obtener un resultado útil en educación. Puede ser una actividad, una rúbrica, un cuestionario o una explicación adaptada. No hace falta saber programar. Hace falta ser claro: qué asignatura, qué nivel, qué objetivo y en qué formato querés la respuesta. Cuanto mejor definas eso, menos tiempo vas a perder corrigiendo salidas genéricas.",
+    },
+    {
+      title: "Cinco principios para docentes",
+      bullets: [
+        "Claridad: evitá preguntas vagas",
+        "Contexto: nivel, asignatura y audiencia",
+        "Pasos: dividí tareas complejas",
+        "Formato: tabla, lista, consigna, rúbrica",
+        "Ejemplos: mostrá el estilo que esperás",
+      ],
+      narration:
+        "Seguí cinco principios. Primero, claridad: en lugar de explicame matemáticas, pedí explicá la regla de los signos en multiplicación de enteros para primer año. Segundo, contexto: indicá si es primaria, secundaria o universidad. Tercero, pasos numerados cuando la tarea es larga. Cuarto, formato de salida: viñetas, tabla, consigna para alumnos. Quinto, un ejemplo del tono o estructura que querés. Eso alinea la respuesta con tu práctica real.",
+    },
+    {
+      title: "Errores que conviene evitar",
+      bullets: [
+        "Prompts demasiado generales",
+        "Demasiada información irrelevante",
+        "No indicar el nivel del estudiante",
+        "Pedir todo en un solo mensaje",
+      ],
+      narration:
+        "Los errores más comunes son cuatro. Uno: prompts vagos que devuelven textos genéricos. Dos: saturar con datos que no importan y confundir al modelo. Tres: olvidar el nivel del alumno, lo que produce explicaciones demasiado fáciles o demasiado difíciles. Cuatro: pedir el programa completo, la rúbrica y la evaluación en un solo mensaje. Es mejor ir paso a paso, revisar cada respuesta y ajustar antes de continuar. Ese método lo vas a aplicar en los próximos módulos.",
+    },
+  ]),
+
+  planificarAsignatura: presentation([
+    {
+      title: "Planificar con prompts secuenciales",
+      highlight: "Un paso por vez: contexto → contenidos → metodología → evaluación",
+      bullets: [
+        "No pidas el programa entero de una vez",
+        "Respondé cada bloque antes del siguiente prompt",
+        "Revisá y ajustá cada salida con tu criterio",
+      ],
+      narration:
+        "Para planificar una asignatura con IA, el secreto es la secuencia. No copies un párrafo enorme pidiendo el programa completo. Empezá definiendo el contexto: nivel educativo, nombre de la materia, carga horaria y semanas de dictado. Esperá la respuesta. Después pedí la organización de contenidos. Luego la propuesta pedagógica y por último las evaluaciones. Cada paso se apoya en el anterior y vos podés corregir antes de seguir.",
+    },
+    {
+      title: "Paso 1 y 2: contexto y contenidos",
+      bullets: [
+        "Nivel, carrera, año y carga horaria",
+        "Nombre de la asignatura y semanas de cursada",
+        "Unidades temáticas y objetivos por unidad",
+      ],
+      narration:
+        "En el primer prompt definí el marco. Por ejemplo: asignatura Historia, tercer año del secundario, cuatro horas semanales durante dieciséis semanas. En el segundo pedí objetivos generales y unidades temáticas ordenadas cronológicamente o por competencias. Si algo no encaja con tu planificación institucional, pedí un ajuste concreto: reducí la unidad tres a dos semanas o incorporá un tema sobre fuentes primarias.",
+    },
+    {
+      title: "Paso 3 y 4: metodología y evaluación",
+      bullets: [
+        "Estrategias activas coherentes con cada unidad",
+        "Tipos de evaluación formativa y sumativa",
+        "Recursos didácticos sugeridos",
+      ],
+      narration:
+        "Con la estructura de contenidos lista, pedí metodologías de enseñanza para cada unidad: debates, estudio de casos, trabajo en equipos. Después solicitá un esquema de evaluaciones alineado con esos objetivos: quices, proyectos, exposiciones orales. Cerrá pidiendo recursos didácticos o lecturas recomendadas. Al final tenés un borrador de programa que vos adaptás a la resolución de tu facultad o al diseño curricular oficial.",
+    },
+  ]),
+
+  rubricasYActividades: presentation([
+    {
+      title: "Rúbricas con IA",
+      highlight: "Criterios claros, niveles de logro y lenguaje observable",
+      bullets: [
+        "Definí la tarea que vas a evaluar",
+        "Pedí criterios y descriptores por nivel",
+        "Ajustá ponderaciones según tu asignatura",
+      ],
+      narration:
+        "Las rúbricas son ideales para trabajar con IA porque tienen estructura predecible. Primero describí la actividad: por ejemplo, exposición oral sobre un ecosistema local, duración diez minutos, segundo año del secundario. Después pedí una rúbrica con cuatro criterios —contenido, organización, uso de recursos y comunicación— y tres niveles de logro. Revisá que los descriptores sean observables y modificá pesos o criterios según lo que realmente valorás en tu curso.",
+    },
+    {
+      title: "Aprendizaje activo y gamificación",
+      bullets: [
+        "Contexto: nivel, tema y objetivo de la actividad",
+        "Estructura: dinámica, roles, duración",
+        "Elementos lúdicos: puntos, misiones, recompensas",
+      ],
+      narration:
+        "Para actividades activas, empezá con el contexto educativo. Nivel, asignatura, tema y objetivo: reforzar fracciones, fomentar colaboración, aplicar un concepto científico. Luego definí la estructura: trabajo en equipos, duración de cuarenta y cinco minutos, tipo de dinámica. Después pedí la actividad completa con narrativa, reglas y sistema de recompensas. La gamificación motiva, pero solo funciona si las reglas son claras y evaluables.",
+    },
+    {
+      title: "Del borrador a la consigna del alumno",
+      bullets: [
+        "Revisá coherencia con objetivos de aprendizaje",
+        "Pedí versión para estudiantes en lenguaje simple",
+        "Generá criterios de evaluación de la actividad",
+      ],
+      narration:
+        "Cuando la IA te entregue la actividad, hacé tres cosas antes de llevarla al aula. Uno: verificá que cumpla el objetivo que planteaste. Dos: pedí una versión en formato instructivo para alumnos, paso a paso, sin jerga docente. Tres: solicitá una rúbrica o lista de cotejo para evaluar participación y producto. Así cerrás el ciclo: diseño, aplicación y evaluación, todo alineado.",
+    },
+  ]),
+
+  debatesYPersonalizacion: presentation([
+    {
+      title: "Debates y simulaciones en clase",
+      highlight: "Pensamiento crítico, argumentación y aplicación en contexto",
+      bullets: [
+        "Definí tema, objetivo y duración",
+        "Roles: moderador, ponentes, jueces, observadores",
+        "Reglas, preguntas guía y criterios de evaluación",
+      ],
+      narration:
+        "Los debates y simulaciones desarrollan argumentación y pensamiento crítico. Con IA podés generar el guion completo. Indicá nivel, asignatura y tema. Definí si será debate formal, mesa redonda o simulación de un evento histórico. Pedí roles para los estudiantes, reglas de participación, preguntas guía y una rúbrica para evaluar argumentos. Revisá que el escenario sea realista y sensible culturalmente antes de aplicarlo.",
+    },
+    {
+      title: "Personalizar explicaciones y rutas",
+      bullets: [
+        "Perfil del estudiante: nivel, intereses, dificultades",
+        "Explicaciones adaptadas en distinto formato",
+        "Rutas de aprendizaje con actividades graduadas",
+      ],
+      narration:
+        "La personalización es otro gran uso pedagógico. Describí el perfil: estudiante de primer año con dificultad en lectura de gráficos, o avanzado que necesita profundizar. Pedí una explicación del mismo contenido en dos versiones: una con apoyo visual y otra más abstracta. También podés solicitar una ruta de aprendizaje con actividades de refuerzo y desafíos adicionales. Siempre validá que el contenido sea correcto y apropiado para la edad.",
+    },
+    {
+      title: "Estrategias de refuerzo",
+      bullets: [
+        "Identificar áreas de dificultad concretas",
+        "Actividades cortas y frecuentes de práctica",
+        "Seguimiento: qué revisar en la próxima clase",
+      ],
+      narration:
+        "Para alumnos con dificultades, la IA puede proponer refuerzos específicos. Indicá el tema donde hay problemas y el error típico que observás. Pedí tres actividades breves de práctica, con consignas claras y respuestas esperadas para que vos puedas corregir. Cerrá con sugerencias de seguimiento: qué repasar en la próxima clase y cómo saber si hubo mejora. El refuerzo no reemplaza la tutoría humana; la complementa con ideas listas para usar.",
+    },
+  ]),
+
+  evaluacionYEtica: presentation([
+    {
+      title: "Evaluaciones con apoyo de IA",
+      highlight: "Generar preguntas y estructuras — no sustituir el juicio del docente",
+      bullets: [
+        "Preguntas orales o escritas según nivel",
+        "Casos prácticos y situaciones problema",
+        "Rúbricas para evaluación oral o escrita",
+      ],
+      narration:
+        "La IA puede ayudarte a diseñar evaluaciones: bancos de preguntas de opción múltiple, consignas de ensayo, situaciones problema o guiones para evaluación oral. Indicá nivel, contenidos y tipo de evidencia que querés recoger. Pedí también una rúbrica de corrección. Pero la aplicación en el aula, la calificación final y la retroalimentación personal siguen siendo responsabilidad tuya. No uses IA para calificar automáticamente sin revisar criterios y casos límite.",
+    },
+    {
+      title: "Uso ético y responsable",
+      bullets: [
+        "Transparencia con estudiantes sobre el uso de IA",
+        "Política clara sobre qué está permitido en trabajos",
+        "Revisar sesgos, errores factuales y plagio",
+      ],
+      narration:
+        "El uso ético es central. Conversá con tus estudiantes sobre qué herramientas pueden usar y para qué. Definí si la IA está permitida para brainstorming pero no para entregar texto final sin edición. Revisá siempre hechos, referencias y posibles sesgos en lo generado. Y recordá que los trabajos de los alumnos también pueden involucrar IA: tu política debe ser explícita, justa y coherente con las reglas de tu institución.",
+    },
+    {
+      title: "Checklist antes de llevarlo al aula",
+      bullets: [
+        "¿El prompt incluye nivel, asignatura y objetivo?",
+        "¿Revisé contenido factual y lenguaje inclusivo?",
+        "¿Tengo evaluación alineada con la actividad?",
+        "¿Sé qué harán los alumnos en cada minuto de clase?",
+      ],
+      narration:
+        "Antes de usar cualquier material generado, pasá por este checklist. ¿El prompt tenía contexto pedagógico completo? ¿Revisaste errores y tono inclusivo? ¿La evaluación mide lo que la actividad promete? ¿Sabés cómo vas a facilitar la dinámica en el tiempo disponible? Si respondés sí, estás listo para probar en el aula. Si no, refiná el prompt o ajustá la propuesta. La iteración es parte del oficio docente, con o sin IA.",
+    },
+  ]),
+};

@@ -44,7 +44,7 @@ async function api(path, options = {}) {
 }
 
 const COURSE = {
-  titulo: "Conceptos en Inteligencia Artificial",
+  titulo: "Conocimientos de Inteligencia Artificial",
   slug: "conceptos-inteligencia-artificial",
   descripcion:
     "Curso express para entender qué es la Inteligencia Artificial, cómo se usa hoy, qué es un token y cómo escribir buenos prompts. Ideal como primer contacto con la IA aplicada, sin tecnicismos innecesarios.",
@@ -70,7 +70,7 @@ const MODULES = [
         tipo: "texto",
         duracion_minutos: 2,
         descripcion: "Qué vas a aprender en este curso express.",
-        contenido_texto: `# Conceptos en Inteligencia Artificial
+        contenido_texto: `# Conocimientos de Inteligencia Artificial
 
 Bienvenido a ALIAA. Este es un **curso express** para que entiendas la IA con claridad, sin abrumarte.
 
@@ -155,7 +155,7 @@ Participá en el foro si tenés dudas. ¡Gracias por aprender con ALIAA!`,
 
 4 preguntas rápidas. Necesitás **70%** para aprobar y obtener tu certificado.`,
         quiz: {
-          titulo: "Evaluación — Conceptos en IA",
+          titulo: "Evaluación — Conocimientos en IA",
           puntaje_aprobacion: 70,
           preguntas: [
             {
@@ -206,7 +206,7 @@ Participá en el foro si tenés dudas. ¡Gracias por aprender con ALIAA!`,
 ];
 
 async function main() {
-  console.log("📚 Creando curso de Conceptos en IA...\n");
+  console.log("📚 Creando curso Conocimientos de Inteligencia Artificial...\n");
 
   const existing = await api(
     `/rest/v1/courses?slug=eq.${COURSE.slug}&select=id`

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0e7490"/>
+      <stop offset="50%" stop-color="#0891b2"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="24"/></filter>
+  </defs>
+  <rect width="800" height="450" fill="url(#bg)"/>
+  <circle cx="120" cy="100" r="80" fill="#ffffff" opacity="0.08" filter="url(#blur)"/>
+  <circle cx="680" cy="350" r="100" fill="#a5f3fc" opacity="0.15" filter="url(#blur)"/>
+  <g opacity="0.95">
+    <rect x="180" y="140" width="440" height="200" rx="16" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.35" stroke-width="2"/>
+    <circle cx="280" cy="200" r="28" fill="#ffffff" fill-opacity="0.2"/>
+    <circle cx="400" cy="200" r="28" fill="#ffffff" fill-opacity="0.25"/>
+    <circle cx="520" cy="200" r="28" fill="#ffffff" fill-opacity="0.2"/>
+    <rect x="240" y="260" width="320" height="50" rx="8" fill="#ffffff" fill-opacity="0.15"/>
+    <rect x="260" y="275" width="80" height="8" rx="4" fill="#67e8f9" fill-opacity="0.8"/>
+    <rect x="360" y="275" width="100" height="8" rx="4" fill="#ffffff" fill-opacity="0.5"/>
+    <rect x="480" y="275" width="60" height="8" rx="4" fill="#ffffff" fill-opacity="0.4"/>
+    <path d="M308 200h184" stroke="#67e8f9" stroke-opacity="0.4" stroke-width="2" stroke-dasharray="6 4"/>
+    <rect x="560" y="160" width="50" height="60" rx="6" fill="#22d3ee" fill-opacity="0.5"/>
+    <rect x="572" y="175" width="26" height="4" rx="2" fill="#ffffff" fill-opacity="0.7"/>
+    <rect x="572" y="188" width="20" height="4" rx="2" fill="#ffffff" fill-opacity="0.5"/>
+    <rect x="572" y="201" width="24" height="4" rx="2" fill="#ffffff" fill-opacity="0.5"/>
+  </g>
+  <rect x="0" y="340" width="800" height="110" fill="url(#glow)"/>
+  <text x="48" y="390" fill="#ffffff" font-family="system-ui, sans-serif" font-size="34" font-weight="700">IA para reuniones</text>
+  <text x="48" y="422" fill="#ffffff" fill-opacity="0.85" font-family="system-ui, sans-serif" font-size="18">Agendas � Actas � Seguimiento � 25 min</text>
+  <text x="720" y="48" fill="#ffffff" fill-opacity="0.7" font-family="system-ui, sans-serif" font-size="16" font-weight="700" text-anchor="end">ALIAA</text>
+</svg>

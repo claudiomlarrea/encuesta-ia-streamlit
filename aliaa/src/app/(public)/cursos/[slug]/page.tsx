@@ -10,7 +10,7 @@ import { CourseCover } from "@/components/courses/course-cover";
 import { formatPrice, sumLessonMinutes } from "@/lib/utils";
 import { LEVEL_LABELS, LESSON_TYPE_LABELS } from "@/lib/constants";
 import { getCourseBySlug, getCourseModules } from "@/lib/courses";
-import { isEnrolled } from "@/lib/enrollments";
+import { courseAccessLabel, getEnrollment } from "@/lib/enrollments";
 import { profileNameForForm } from "@/lib/profile-name";
 import { getProfile } from "@/lib/supabase/server";
 import { createClient } from "@/lib/supabase/server";
@@ -35,7 +35,8 @@ export default async function CursoDetallePage({ params }: PageProps) {
   const profile = await getProfile();
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  const enrolled = user ? await isEnrolled(user.id, course.id) : false;
+  const enrollment = user ? await getEnrollment(user.id, course.id) : null;
+  const enrolled = !!enrollment;
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -126,7 +127,9 @@ export default async function CursoDetallePage({ params }: PageProps) {
               {profile ? (
                 enrolled ? (
                   <Link href={`/dashboard/cursos/${course.id}`} className="mt-4 block">
-                    <Button className="w-full">Continuar curso</Button>
+                    <Button className="w-full">
+                      {courseAccessLabel(enrollment.progreso_porcentaje)}
+                    </Button>
                   </Link>
                 ) : course.gratuito ? (
                   <div className="mt-4">
