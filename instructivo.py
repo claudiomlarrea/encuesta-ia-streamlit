@@ -9,8 +9,8 @@ from ui_theme import GREEN, GREEN_MID, SURFACE
 
 _PDF_PATH = Path(__file__).resolve().parent / "assets" / "instructivo_encuesta_clara.pdf"
 _GITHUB_PDF_URL = (
-    "https://github.com/claudiomlarrea/encuesta-ia-streamlit/raw/main/"
-    "assets/instructivo_encuesta_clara.pdf"
+    "https://claudiomlarrea.github.io/observatorio-ia/docs/instructivos/"
+    "instructivo-encuesta-clara.pdf"
 )
 
 
