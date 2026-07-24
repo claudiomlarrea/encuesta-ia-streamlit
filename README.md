@@ -21,7 +21,27 @@ pip install -r requirements-full.txt   # SHAP, XGBoost y sentimiento HF
 streamlit run app.py
 ```
 
-En la barra lateral podés **subir el `.xlsx`** o pegar una ruta local.
+En la barra lateral podés **subir el `.xlsx`**, pegar una **URL/ID de Google Sheets** (compartido con enlace) o una ruta local.
+
+Pestañas principales:
+
+- **Análisis automático**: frecuencias de todos los ítems, cruces que elijas e **Informe ejecutivo** + **Informe institucional** (Word).
+- **Análisis semiautomático**: modo guiado ítem por ítem (consultas individuales, filtros y cruces puntuales).
+
+También podés abrir la app con query params:
+
+```
+http://localhost:8501/?sheet=ID_DE_LA_HOJA
+http://localhost:8501/?sheets_url=https://docs.google.com/spreadsheets/d/ID/...
+```
+
+Tras cargar datos, aparece **Descargar informe ejecutivo (Word)** con frecuencias de ítems estructurados y síntesis cualitativa de abiertas.
+
+Informe por consola:
+
+```bash
+python scripts/generar_informe_local.py --xlsx /ruta/respuestas.xlsx --out /ruta/informe.docx
+```
 
 La primera vez que activás el modelo de Hugging Face se descargan pesos grandes; si falla, desactivá el interruptor y se usa el **léxico** incluido (menos preciso).
 

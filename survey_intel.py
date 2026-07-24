@@ -17,6 +17,24 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 TIMESTAMP_HINTS = ("marca temporal", "timestamp", "fecha de respuesta")
 
+# Preguntas abiertas típicas (prioridad sobre heurísticas de cardinalidad)
+OPEN_QUESTION_HINTS = (
+    "qué ventajas",
+    "que ventajas",
+    "qué riesgos",
+    "que riesgos",
+    "preocupaciones te genera",
+    "qué recomendaciones",
+    "que recomendaciones",
+    "buena práctica",
+    "buena practica",
+    "experiencia concreta",
+    "si querés, mencioná",
+    "si queres, menciona",
+    "comentarios adicionales",
+    "opinión libre",
+)
+
 LIKERT_TERMS = frozenset(
     {
         "totalmente de acuerdo",
@@ -35,6 +53,11 @@ FREQ_TERMS = frozenset(
         "a veces",
         "frecuentemente",
         "siempre",
+        # Escala temporal docente (0–4)
+        "menos de una vez por mes",
+        "entre 1 y 3 veces por mes",
+        "entre 1 y 3 veces por semana",
+        "cuatro o más veces por semana",
     }
 )
 
@@ -252,12 +275,17 @@ def classify_columns(df: pd.DataFrame) -> list[ColumnProfile]:
 
         comma_ratio = str_s.str.contains(",").mean()
         card_ratio = n_unique / max(nn, 1)
+        col_l = str(col).lower()
 
         # Subtipo y decisión
         subtype = "mixta / revisar"
         kind: Literal["estructurada", "abierta"] = "estructurada"
 
-        if ratio_likert >= 0.45:
+        # Priorizar enunciados típicos de respuesta abierta (evita falsos multi-select por comas)
+        if any(h in col_l for h in OPEN_QUESTION_HINTS) and avg_len >= 35:
+            subtype = "Texto libre (respuesta abierta)"
+            kind = "abierta"
+        elif ratio_likert >= 0.45:
             subtype = "Escala tipo Likert (acuerdo)"
             kind = "estructurada"
         elif ratio_freq >= 0.45:

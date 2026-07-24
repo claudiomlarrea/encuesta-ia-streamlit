@@ -81,6 +81,11 @@ FREQ_SCORE = {
     "a veces": 3,
     "frecuentemente": 4,
     "siempre": 5,
+    # Escala temporal única (docentes / instrumentos 0–4 → codifica 1–5)
+    "menos de una vez por mes": 2,
+    "entre 1 y 3 veces por mes": 3,
+    "entre 1 y 3 veces por semana": 4,
+    "cuatro o más veces por semana": 5,
 }
 
 # Likert sin categoría neutra (forma frecuente en Google Forms reducido)

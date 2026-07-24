@@ -96,6 +96,13 @@ from survey_intel import (
 from analytics import inject_google_analytics
 from feedback import render_institutional_contact
 from instructivo import render_instructivo_button
+from sheets_loader import (
+    dataframe_fingerprint,
+    extract_gid,
+    extract_sheet_id,
+    load_google_sheet,
+)
+from auto_pipeline_ui import render_analisis_automatico_tab
 from survey_guided import (
     analysis_options_for_column,
     apply_cohort_filters,
@@ -176,6 +183,7 @@ MAIN_TABS_ORDER = [
     "Resumen de ítems",
     "Limpieza de datos",
     "Análisis automático",
+    "Análisis semiautomático",
     "Análisis cuantitativo",
     "Análisis cualitativo",
     "Guía metodológica",
@@ -229,8 +237,39 @@ def quant_modules_for_ui(*, public: bool) -> list[str]:
     return list(QUANT_MODULE_ORDER)
 
 
+def _migrate_main_tab_picks(*, public: bool) -> None:
+    """
+    Una sola vez por sesión: la pestaña guiada antigua «Análisis automático»
+    pasa a «Análisis semiautomático»; se agrega la nueva «Análisis automático».
+    """
+    if st.session_state.get("_tab_rename_auto_v2"):
+        return
+    key = _widget_key("pick_main_sections")
+    allowed = set(main_tabs_for_ui(public=public))
+    if key in st.session_state:
+        old = list(st.session_state[key])
+        had_legacy_guided = any(x in ("Análisis automático", "Pregunta a la encuesta") for x in old)
+        picks: list[str] = []
+        for x in old:
+            if x in ("Pregunta a la encuesta", "Análisis automático"):
+                picks.append("Análisis semiautomático")
+            else:
+                picks.append(x)
+        if had_legacy_guided and "Análisis automático" in allowed:
+            picks.append("Análisis automático")
+        seen: set[str] = set()
+        clean: list[str] = []
+        for t in picks:
+            if t in allowed and t not in seen:
+                clean.append(t)
+                seen.add(t)
+        st.session_state[key] = clean
+    st.session_state._tab_rename_auto_v2 = True
+
+
 def _sanitize_ui_tab_picks(*, public: bool) -> None:
     """Quita pestañas/módulos internos si quedaron en sesión tras un deploy público."""
+    _migrate_main_tab_picks(public=public)
     main_key = _widget_key("pick_main_sections")
     quant_key = _widget_key("pick_quant_modules")
     allowed_main = set(main_tabs_for_ui(public=public))
@@ -333,11 +372,19 @@ def load_table(uploaded: Any, path: str | None) -> tuple[pd.DataFrame, str]:
     if uploaded is not None:
         raw, name = _bytes_from_uploaded(uploaded)
         bio = io.BytesIO(raw)
-        df = pd.read_excel(bio)
+        lower = name.lower()
+        if lower.endswith(".csv"):
+            df = pd.read_csv(bio)
+        else:
+            df = pd.read_excel(bio)
         return df.copy(), name
     if path and path.strip():
-        df = pd.read_excel(path.strip())
-        return df.copy(), path.strip().split("/")[-1]
+        p = path.strip()
+        if p.lower().endswith(".csv"):
+            df = pd.read_csv(p)
+        else:
+            df = pd.read_excel(p)
+        return df.copy(), p.split("/")[-1]
     raise ValueError("No hay archivo.")
 
 
@@ -420,6 +467,30 @@ def main() -> None:
     public_ui = is_public_deployment()
     _sanitize_ui_tab_picks(public=public_ui)
 
+    # Prefill Google Sheets desde query params (?sheet=ID | ?sheets_url=…)
+    try:
+        qp = st.query_params
+        q_sheet = (qp.get("sheet") or qp.get("sheets_url") or "").strip()
+    except Exception:  # noqa: BLE001
+        q_sheet = ""
+    if q_sheet and not st.session_state.get("_sheets_url_prefill"):
+        st.session_state._sheets_url_prefill = q_sheet
+    if (
+        q_sheet
+        and st.session_state.loaded_df is None
+        and not st.session_state.get("_sheets_autoload_done")
+    ):
+        try:
+            df_q, name_q = load_google_sheet(q_sheet)
+            st.session_state.loaded_df = df_q
+            st.session_state.loaded_name = name_q
+            st.session_state._sheets_sig = dataframe_fingerprint(df_q, name_q)
+            st.session_state._sheets_autoload_done = True
+            st.session_state._sheets_url_prefill = q_sheet
+        except Exception as e:  # noqa: BLE001
+            st.session_state._sheets_autoload_done = True
+            st.session_state._sheets_autoload_error = str(e)
+
     with st.sidebar:
         st.markdown(
             f"[← Sitio del Observatorio de IA]({OBSERVATORIO_SITE_URL})",
@@ -432,19 +503,30 @@ def main() -> None:
         st.header("Datos")
         up = st.file_uploader(
             "Subí el Excel de respuestas",
-            type=["xlsx", "xls"],
+            type=["xlsx", "xls", "csv"],
         )
+        sheets_url = st.text_input(
+            "O URL / ID de Google Sheets (respuestas del Forms)",
+            value=st.session_state.get("_sheets_url_prefill", ""),
+            placeholder="https://docs.google.com/spreadsheets/d/…/edit",
+            help=(
+                "La hoja debe estar compartida como «Cualquier persona con el enlace puede ver». "
+                "También podés abrir la app con ?sheet=ID o ?sheets_url=…"
+            ),
+            key="sheets_url_input",
+        )
+        load_sheets_btn = st.button("Cargar Google Sheets", type="secondary", use_container_width=True)
         manual_path = ""
         if not public_ui:
             manual_path = st.text_input(
                 "O ruta local al Excel (solo si corrés streamlit en tu PC)",
                 value="",
                 placeholder="Ej.: /ruta/a/respuestas.xlsx",
-                help="En Streamlit Cloud este campo no sirve: usá siempre «Subí el archivo».",
+                help="En Streamlit Cloud este campo no sirve: usá siempre «Subí el archivo» o Google Sheets.",
             )
         st.caption(
-            "**Nube:** subí el Excel con el botón de arriba; los datos quedan en esta sesión "
-            "hasta que pulsás «Quitar archivo»."
+            "**Nube:** subí el Excel, cargá un Google Sheets público con enlace, o usá query params "
+            "`?sheet=` / `?sheets_url=`. Los datos quedan en esta sesión hasta «Quitar archivo»."
             + (
                 ""
                 if public_ui
@@ -470,6 +552,8 @@ def main() -> None:
 
     load_error: str | None = None
     path_load_warning: str | None = None
+    if st.session_state.get("_sheets_autoload_error"):
+        load_error = st.session_state.pop("_sheets_autoload_error")
     try:
         if up is not None:
             raw, fname_from_upload = _bytes_from_uploaded(up)
@@ -480,7 +564,11 @@ def main() -> None:
                 pass
             else:
                 bio = io.BytesIO(raw)
-                df_new = pd.read_excel(bio).copy()
+                lower = fname_from_upload.lower()
+                if lower.endswith(".csv"):
+                    df_new = pd.read_csv(bio).copy()
+                else:
+                    df_new = pd.read_excel(bio).copy()
                 fname_new = fname_from_upload
                 new_token = (
                     f"{fname_new}|{int(df_new.shape[0])}|{int(df_new.shape[1])}|{len(df_new.columns)}"
@@ -492,6 +580,19 @@ def main() -> None:
                 st.session_state.loaded_name = fname_new
                 st.session_state._upload_digest = digest
                 st.session_state.pop("_path_sig", None)
+                st.session_state.pop("_sheets_sig", None)
+        elif load_sheets_btn and sheets_url.strip():
+            st.session_state.pop("_upload_digest", None)
+            st.session_state.pop("_path_sig", None)
+            df_new, fname_new = load_google_sheet(sheets_url.strip())
+            sig = dataframe_fingerprint(df_new, fname_new)
+            if sig != st.session_state.get("_sheets_sig"):
+                _clear_analysis_ui_state()
+                st.session_state._ui_bound_to = None
+            st.session_state.loaded_df = df_new
+            st.session_state.loaded_name = fname_new
+            st.session_state._sheets_sig = sig
+            st.session_state._sheets_url_prefill = sheets_url.strip()
         elif manual_path.strip():
             st.session_state.pop("_upload_digest", None)
             p_strip = manual_path.strip()
@@ -569,6 +670,11 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
     df = st.session_state.loaded_df
     fname = st.session_state.loaded_name or "datos.xlsx"
     st.success(f"Archivo cargado: **{fname}** — {df.shape[0]} filas × {df.shape[1]} columnas")
+    st.info(
+        "Para el pipeline completo (frecuencias → cruces elegibles → **Informe ejecutivo** e "
+        "**Informe institucional**), abrí la pestaña **Análisis automático**. "
+        "La pestaña **Análisis semiautomático** conserva el modo guiado ítem por ítem."
+    )
 
     main_tab_opts = main_tabs_for_ui(public=public_ui)
     quant_mod_opts = quant_modules_for_ui(public=public_ui)
@@ -597,6 +703,19 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             st.session_state.pop("_ui_bound_to", None)
             st.session_state.pop("_upload_digest", None)
             st.session_state.pop("_path_sig", None)
+            st.session_state.pop("_sheets_sig", None)
+            st.session_state.pop("_sheets_autoload_done", None)
+            st.session_state.pop("_sheets_url_prefill", None)
+            for k in (
+                "auto_freq_sections",
+                "auto_freq_src",
+                "auto_cross_results",
+                "auto_exec_bytes",
+                "auto_inst_bytes",
+                "auto_exec_err",
+                "auto_inst_err",
+            ):
+                st.session_state.pop(k, None)
             _clear_analysis_ui_state()
             st.rerun()
 
@@ -618,7 +737,7 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
             return x
         return col_labels.get(x, x)
 
-    _TAB_RENAME = {"Pregunta a la encuesta": "Análisis automático"}
+    _TAB_RENAME = {"Pregunta a la encuesta": "Análisis semiautomático"}
     main_sections = [_TAB_RENAME.get(t, t) for t in main_sections]
     main_ordered = [t for t in MAIN_TABS_ORDER if t in main_sections]
     if not main_ordered:
@@ -632,6 +751,10 @@ Cuando cargues un archivo, esta app incluye **descriptivos, pruebas inferenciale
 
     if "Análisis automático" in T_main:
         with T_main["Análisis automático"]:
+            render_analisis_automatico_tab(df, profiles, source_name=str(fname))
+
+    if "Análisis semiautomático" in T_main:
+        with T_main["Análisis semiautomático"]:
             st.subheader("Consultas sobre la encuesta")
             st.caption(
                 "Elegí la pregunta del formulario, opcionalmente filtrá la muestra y obtené tablas "
