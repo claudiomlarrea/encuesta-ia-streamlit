@@ -10,10 +10,12 @@ from PIL import Image, ImageDraw, ImageFont
 ASSETS = Path(__file__).resolve().parent / "assets"
 LOGO_PATH = ASSETS / "logo_observatorio_ia.png"
 
-# A4 @ 150 dpi
-W, H = 1240, 1754
+# A4 @ 220 dpi → tipografía legible al insertar a página completa en Word
+DPI = 220
+W, H = int(210 / 25.4 * DPI), int(297 / 25.4 * DPI)  # ≈ 1819 × 2572
 GREEN = (6, 74, 56)
 WHITE = (255, 255, 255)
+MARGIN = 90
 
 
 def _font(size: int, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
@@ -63,22 +65,26 @@ def _gradient_bg() -> Image.Image:
     px = img.load()
     c0 = (74, 12, 31)
     c1 = (156, 39, 72)
+    # Muestreo por filas (más rápido que pixel a pixel en X fino)
     for y in range(H):
         ty = y / max(H - 1, 1)
-        for x in range(W):
+        for x in range(0, W, 2):
             tx = x / max(W - 1, 1)
             u = min(1.0, max(0.0, 0.62 * ty + 0.38 * tx))
-            r = int(c0[0] + (c1[0] - c0[0]) * u)
-            g = int(c0[1] + (c1[1] - c0[1]) * u)
-            b = int(c0[2] + (c1[2] - c0[2]) * u)
-            px[x, y] = (r, g, b)
+            rgb = (
+                int(c0[0] + (c1[0] - c0[0]) * u),
+                int(c0[1] + (c1[1] - c0[1]) * u),
+                int(c0[2] + (c1[2] - c0[2]) * u),
+            )
+            px[x, y] = rgb
+            if x + 1 < W:
+                px[x + 1, y] = rgb
     return img
 
 
 def _paste_circular_logo(base: Image.Image, logo_path: Path, xy: tuple[int, int], size: int) -> None:
     logo = Image.open(logo_path).convert("RGBA")
     logo = logo.resize((size, size), Image.Resampling.LANCZOS)
-    # círculo blanco + logo
     canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
@@ -100,66 +106,68 @@ def render_cover_png(
     draw = ImageDraw.Draw(img)
 
     # barra verde superior
-    bar_h = 64
+    bar_h = 88
     draw.rectangle((0, 0, W, bar_h), fill=GREEN)
-    f_bar = _font(17, bold=True)
+    f_bar = _font(28, bold=True)
     bar_txt = "UNIVERSIDAD CATÓLICA DE CUYO  ·  OBSERVATORIO DE INTELIGENCIA ARTIFICIAL"
     tw = draw.textlength(bar_txt, font=f_bar)
-    draw.text(((W - tw) / 2, 22), bar_txt, fill=WHITE, font=f_bar)
+    draw.text(((W - tw) / 2, 28), bar_txt, fill=WHITE, font=f_bar)
 
     # logo + marca
-    logo_x, logo_y = 78, 100
-    logo_size = 118
+    logo_x, logo_y = MARGIN, bar_h + 36
+    logo_size = 168
     if LOGO_PATH.exists():
         _paste_circular_logo(img, LOGO_PATH, (logo_x, logo_y), logo_size)
         draw = ImageDraw.Draw(img)
 
-    f_uni = _font(26, bold=True)
-    f_obs = _font(32, bold=True)
-    brand_x = logo_x + logo_size + 26
-    draw.text((brand_x, logo_y + 28), "Universidad Católica de Cuyo", fill=WHITE, font=f_uni)
-    draw.text((brand_x, logo_y + 66), "Observatorio de Inteligencia Artificial", fill=WHITE, font=f_obs)
+    f_uni = _font(36, bold=True)
+    f_obs = _font(46, bold=True)
+    brand_x = logo_x + logo_size + 36
+    draw.text((brand_x, logo_y + 36), "Universidad Católica de Cuyo", fill=WHITE, font=f_uni)
+    draw.text((brand_x, logo_y + 88), "Observatorio de Inteligencia Artificial", fill=WHITE, font=f_obs)
 
     # bloque título
-    main_top = 360
-    f_kick = _font(20, bold=True)
-    draw.text((78, main_top), kicker.upper(), fill=(255, 255, 255), font=f_kick)
+    main_top = logo_y + logo_size + 70
+    f_kick = _font(36, bold=True)
+    draw.text((MARGIN, main_top), kicker.upper(), fill=WHITE, font=f_kick)
 
-    f_title = _font(42, bold=True)
-    title_lines = _wrap(draw, title, f_title, W - 160)
-    y = main_top + 48
+    f_title = _font(62, bold=True)
+    title_lines = _wrap(draw, title, f_title, W - 2 * MARGIN)
+    y = main_top + 62
     for line in title_lines:
-        draw.text((78, y), line, fill=WHITE, font=f_title)
-        y += 52
+        draw.text((MARGIN, y), line, fill=WHITE, font=f_title)
+        y += 76
 
-    f_sub = _font(23)
-    y += 12
-    for line in _wrap(draw, subtitle, f_sub, int(W * 0.84)):
-        draw.text((78, y), line, fill=(245, 245, 245), font=f_sub)
-        y += 32
+    f_sub = _font(36)
+    y += 24
+    for line in _wrap(draw, subtitle, f_sub, int(W * 0.86)):
+        draw.text((MARGIN, y), line, fill=(245, 245, 245), font=f_sub)
+        y += 48
 
     # caja elaboración
-    y += 40
-    box1 = (78, y, 780, y + 96)
-    draw.rounded_rectangle(box1, radius=18, outline=(255, 255, 255), width=2, fill=(90, 20, 40))
-    f_box = _font(21, bold=True)
-    f_box_body = _font(20)
-    draw.text((98, y + 18), "Elaboración técnica:", fill=WHITE, font=f_box)
+    y += 52
+    box1_h = 148
+    box1 = (MARGIN, y, W - MARGIN - 80, y + box1_h)
+    draw.rounded_rectangle(box1, radius=24, outline=WHITE, width=3, fill=(90, 20, 40))
+    f_box = _font(34, bold=True)
+    f_box_body = _font(32)
+    draw.text((MARGIN + 32, y + 32), "Elaboración técnica:", fill=WHITE, font=f_box)
     draw.text(
-        (98, y + 52),
+        (MARGIN + 32, y + 84),
         f"Observatorio de Inteligencia Artificial — UCCuyo    Fecha: {year}",
         fill=WHITE,
         font=f_box_body,
     )
 
     # caja equipo
-    y += 124
-    box2 = (78, y, W - 78, y + 220)
-    draw.rounded_rectangle(box2, radius=18, outline=(255, 255, 255), width=2, fill=(95, 22, 45))
-    f_team_t = _font(19, bold=True)
-    draw.text((98, y + 18), "DIRECCIÓN Y EQUIPO RESPONSABLE", fill=WHITE, font=f_team_t)
-    f_role = _font(19, bold=True)
-    f_people = _font(19)
+    y += box1_h + 40
+    box2_h = 320
+    box2 = (MARGIN, y, W - MARGIN, y + box2_h)
+    draw.rounded_rectangle(box2, radius=24, outline=WHITE, width=3, fill=(95, 22, 45))
+    f_team_t = _font(32, bold=True)
+    draw.text((MARGIN + 32, y + 28), "DIRECCIÓN Y EQUIPO RESPONSABLE", fill=WHITE, font=f_team_t)
+    f_role = _font(32, bold=True)
+    f_people = _font(32)
     rows = [
         ("Dirección general:", "Claudio Larrea Arnau"),
         (
@@ -168,33 +176,32 @@ def render_cover_png(
         ),
         ("Asesor externo:", "Frederic Marimon"),
     ]
-    yy = y + 58
+    yy = y + 88
     for role, people in rows:
-        draw.text((98, yy), role, fill=(230, 230, 230), font=f_role)
+        draw.text((MARGIN + 32, yy), role, fill=(230, 230, 230), font=f_role)
         rw = int(draw.textlength(role + "  ", font=f_role))
-        people_lines = _wrap(draw, people, f_people, W - 200 - rw)
-        draw.text((98 + rw, yy), people_lines[0], fill=WHITE, font=f_people)
-        yy += 30
+        people_lines = _wrap(draw, people, f_people, W - 2 * MARGIN - 70 - rw)
+        draw.text((MARGIN + 32 + rw, yy), people_lines[0], fill=WHITE, font=f_people)
+        yy += 44
         for extra in people_lines[1:]:
-            draw.text((98, yy), extra, fill=WHITE, font=f_people)
-            yy += 26
-        yy += 10
+            draw.text((MARGIN + 32, yy), extra, fill=WHITE, font=f_people)
+            yy += 40
+        yy += 16
 
     # pie
-    foot_y = H - 170
-    draw.line((78, foot_y, W - 78, foot_y), fill=WHITE, width=2)
-    f_foot = _font(19)
+    foot_y = H - 250
+    draw.line((MARGIN, foot_y, W - MARGIN, foot_y), fill=WHITE, width=3)
+    f_foot = _font(30)
     mission = (
         "Promovemos el análisis, la formación, la investigación y la vinculación institucional "
         "sobre el impacto y las aplicaciones de la inteligencia artificial, con enfoque académico, ético y regional."
     )
-    yy = foot_y + 20
-    for line in _wrap(draw, mission, f_foot, W - 160):
-        draw.text((78, yy), line, fill=(240, 240, 240), font=f_foot)
-        yy += 28
+    yy = foot_y + 32
+    for line in _wrap(draw, mission, f_foot, W - 2 * MARGIN):
+        draw.text((MARGIN, yy), line, fill=(240, 240, 240), font=f_foot)
+        yy += 40
 
-    # franja blanca inferior (como el PDF de referencia)
-    draw.rectangle((0, H - 28, W, H), fill=WHITE)
+    draw.rectangle((0, H - 36, W, H), fill=WHITE)
 
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
