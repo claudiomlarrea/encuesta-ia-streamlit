@@ -693,13 +693,22 @@ def add_aesthetic_cover(
     sec0.bottom_margin = Cm(0)
     sec0.left_margin = Cm(0)
     sec0.right_margin = Cm(0)
+    sec0.header_distance = Cm(0)
+    sec0.footer_distance = Cm(0)
 
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p.paragraph_format.space_before = Pt(0)
     p.paragraph_format.space_after = Pt(0)
+    p.paragraph_format.line_spacing = 1.0
+    pf = p.paragraph_format
+    try:
+        pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    except Exception:  # noqa: BLE001
+        pass
     run = p.add_run()
-    run.add_picture(io.BytesIO(png), width=Cm(21.0))
+    # Forzar A4 completo (ancho y alto) para que la tipografía de la imagen se lea grande
+    run.add_picture(io.BytesIO(png), width=Cm(21.0), height=Cm(29.7))
 
     # Cuerpo en nueva sección con márgenes normales
     new_sec = doc.add_section()
