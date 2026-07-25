@@ -1,12 +1,14 @@
 """
-Informe EJECUTIVO (Word) — narrativo, sin tablas.
+Informe EJECUTIVO (Word) — narrativo.
 
 Portada + índice clicable (con subpuntos de recomendaciones) + numeración de páginas.
+Si se pasan cruces del Análisis automático, se agrega un apartado con lectura y tablas.
 """
 from __future__ import annotations
 
 import io
 import re
+from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -14,11 +16,15 @@ import pandas as pd
 
 from executive_narrative import build_executive_sections
 from report_common import (
+    GREEN,
     MUTED,
     add_aesthetic_cover,
     add_heading,
+    add_pandas_table,
     add_para,
     add_toc_hyperlink,
+    narrative_for_crosstab,
+    normalize_user_crosses,
     setup_margins,
 )
 from survey_intel import classify_columns
@@ -44,6 +50,8 @@ def build_executive_report_docx(
     subtitle: str = "",
     cohort_label: str = "",
     source_name: str = "",
+    user_crosses: list[dict[str, Any]] | None = None,
+    auto_analysis: list[dict[str, Any]] | None = None,
 ) -> bytes:
     import report_common as rc
 
@@ -59,6 +67,13 @@ def build_executive_report_docx(
         "Documento de síntesis para presentación a la comunidad educativa de la UCCuyo."
     )
 
+    if user_crosses is not None:
+        crosses = list(user_crosses)
+    elif auto_analysis is not None:
+        crosses = normalize_user_crosses(auto_analysis)
+    else:
+        crosses = []
+
     sections = build_executive_sections(df, audience=audience)
     section_items = list(sections.items())
 
@@ -72,6 +87,8 @@ def build_executive_report_docx(
                 subs.append((int(m.group(1)), para.strip()))
         if subs and ("recomend" in name.lower() or idx == 7):
             rec_subpoints[idx] = subs
+
+    cross_sec_idx = len(section_items) + 1 if crosses else None
 
     doc = Document()
     add_aesthetic_cover(
@@ -116,6 +133,24 @@ def build_executive_report_docx(
                 space_after=1,
             )
 
+    if cross_sec_idx is not None:
+        add_toc_hyperlink(
+            doc,
+            "Cruces seleccionados en el análisis automático",
+            f"bm_ex_{cross_sec_idx}",
+            bold=True,
+            space_after=2,
+        )
+        for i, cr in enumerate(crosses, start=1):
+            add_toc_hyperlink(
+                doc,
+                f"{i}. {cr['row_label']} × {cr['col_label']}",
+                f"bm_ex_{cross_sec_idx}_{i}",
+                size=10,
+                indent_cm=0.6,
+                space_after=1,
+            )
+
     for idx, (name, paras) in enumerate(section_items, start=1):
         add_heading(doc, name, 1, bookmark=f"bm_ex_{idx}")
         for para in paras:
@@ -127,6 +162,33 @@ def build_executive_report_docx(
                 add_para(doc, para, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=6)
             else:
                 add_para(doc, para)
+
+    if cross_sec_idx is not None and crosses:
+        add_heading(
+            doc,
+            "Cruces seleccionados en el análisis automático",
+            1,
+            bookmark=f"bm_ex_{cross_sec_idx}",
+        )
+        add_para(
+            doc,
+            "Este apartado incorpora los cruces configurados en el Análisis automático. "
+            "Cada cruce se presenta con una lectura narrativa breve y la tabla de contingencia "
+            "correspondiente, para que el documento ejecutivo refleje las mismas exploraciones "
+            "bivariadas revisadas en la aplicación.",
+        )
+        for i, cr in enumerate(crosses, start=1):
+            add_heading(
+                doc,
+                f"{i}. {cr['row_label']} × {cr['col_label']}",
+                2,
+                bookmark=f"bm_ex_{cross_sec_idx}_{i}",
+            )
+            add_para(doc, narrative_for_crosstab(cr))
+            add_para(doc, "Tabla de contingencia", size=11, bold=True, color=GREEN, space_after=2)
+            add_pandas_table(doc, cr["table"])
+            if cr.get("conclusion"):
+                add_para(doc, cr["conclusion"], size=10, color=MUTED)
 
     buf = io.BytesIO()
     doc.save(buf)

@@ -31,6 +31,7 @@ from report_common import (
     build_institutional_final_considerations,
     build_qualitative_extended,
     display_label,
+    normalize_user_crosses,
     setup_margins,
 )
 from survey_intel import classify_columns
@@ -109,7 +110,15 @@ def build_institutional_report_docx(
     subtitle: str = "",
     source_name: str = "",
     cohort_label: str = "",
+    user_crosses: list[dict[str, Any]] | None = None,
+    auto_analysis: list[dict[str, Any]] | None = None,
 ) -> bytes:
+    """
+    Informe institucional Word.
+
+    Si se pasa `user_crosses` o `auto_analysis` (resultado del Análisis automático),
+    el capítulo de cruces usa esos cruces elegidos. Si no, genera cruces automáticos.
+    """
     import report_common as rc
 
     rc._bookmark_seq = 0
@@ -117,7 +126,15 @@ def build_institutional_report_docx(
     profiles = classify_columns(df)
     freq_sections = build_frequency_sections(df, profiles)
     qual_briefs = build_qualitative_extended(df, profiles)
-    crosses = build_crosstab_section(df, profiles)
+    if user_crosses is not None:
+        crosses = list(user_crosses)
+        crosses_from_user = True
+    elif auto_analysis is not None:
+        crosses = normalize_user_crosses(auto_analysis)
+        crosses_from_user = True
+    else:
+        crosses = build_crosstab_section(df, profiles)
+        crosses_from_user = False
     audience = _infer_audience(source_name, [p.name for p in profiles])
 
     cover_title = title.strip() or (
@@ -184,10 +201,15 @@ def build_institutional_report_docx(
                 space_after=1,
             )
 
+    cross_chapter_title = (
+        "Análisis de cruces seleccionados"
+        if crosses_from_user
+        else "Análisis de cruces entre variables"
+    )
     if cross_num is not None:
         add_toc_hyperlink(
             doc,
-            f"{cross_num}. Análisis de cruces entre variables",
+            f"{cross_num}. {cross_chapter_title}",
             f"bm_ch_{cross_num}",
             bold=True,
             space_after=2,
@@ -266,15 +288,23 @@ def build_institutional_report_docx(
     if crosses and cross_num is not None:
         add_heading(
             doc,
-            f"{cross_num}. Análisis de cruces entre variables",
+            f"{cross_num}. {cross_chapter_title}",
             1,
             bookmark=f"bm_ch_{cross_num}",
         )
-        add_para(
-            doc,
-            "Se incluyen cruces automáticos entre una variable sociodemográfica y variables de "
-            "adopción/uso/institucionales, para explorar diferencias de patrón según perfil.",
-        )
+        if crosses_from_user:
+            add_para(
+                doc,
+                "Se incluyen los cruces configurados en el Análisis automático de Encuesta Clara. "
+                "Cada tabla de contingencia reproduce el cruce elegido por pregunta; la lectura "
+                "es exploratoria y complementa las frecuencias univariadas de los capítulos previos.",
+            )
+        else:
+            add_para(
+                doc,
+                "Se incluyen cruces automáticos entre una variable sociodemográfica y variables de "
+                "adopción/uso/institucionales, para explorar diferencias de patrón según perfil.",
+            )
         for i, cr in enumerate(crosses, start=1):
             add_heading(
                 doc,

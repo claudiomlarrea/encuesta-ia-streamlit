@@ -16,6 +16,7 @@ from report_common import (
     build_frequency_sections,
     classify_chapter,
     display_label,
+    normalize_user_crosses,
 )
 from survey_intel import ColumnProfile
 
@@ -58,6 +59,8 @@ def _clear_auto_results() -> None:
         "auto_inst_bytes",
         "auto_exec_err",
         "auto_inst_err",
+        "auto_exec_n_cross",
+        "auto_inst_n_cross",
     ):
         st.session_state.pop(k, None)
 
@@ -311,21 +314,33 @@ def render_analisis_automatico_tab(
     # ------------------------------------------------------------------
     st.markdown("### 3. Informes institucionales (Word)")
     st.caption(
-        "El **ejecutivo** es narrativo (sin tablas). El **institucional** es extenso "
-        "(introducción → tabla → conclusión por ítem, cruces y cualitativo)."
+        "Ambos informes incluyen los **cruces que elegiste** en el paso 1 "
+        "(después de calcular). El ejecutivo suma un apartado narrativo + tablas de esos cruces; "
+        "el institucional los incluye en el capítulo de cruces seleccionados."
     )
+
+    def _crosses_for_reports() -> list[dict[str, Any]]:
+        return normalize_user_crosses(st.session_state.get("auto_cross_computed") or [])
+
+    if not st.session_state.get("auto_analysis_ready"):
+        st.warning(
+            "Para incluir tus cruces en los Word, primero pulsá **Calcular frecuencias y cruces**."
+        )
 
     gen1, gen2 = st.columns(2)
     with gen1:
         if st.button("Generar informe ejecutivo", type="primary", key="auto_gen_exec", use_container_width=True):
             with st.spinner("Generando informe ejecutivo…"):
                 try:
+                    crosses = _crosses_for_reports()
                     st.session_state.auto_exec_bytes = build_executive_report_docx(
                         df,
                         cohort_label="Análisis automático · Encuesta Clara",
                         source_name=source_name,
+                        user_crosses=crosses,
                     )
                     st.session_state.auto_exec_err = None
+                    st.session_state.auto_exec_n_cross = len(crosses)
                 except Exception as e:  # noqa: BLE001
                     st.session_state.auto_exec_err = str(e)
                     st.session_state.auto_exec_bytes = None
@@ -333,12 +348,15 @@ def render_analisis_automatico_tab(
         if st.button("Generar informe institucional", type="primary", key="auto_gen_inst", use_container_width=True):
             with st.spinner("Generando informe institucional extenso…"):
                 try:
+                    crosses = _crosses_for_reports()
                     st.session_state.auto_inst_bytes = build_institutional_report_docx(
                         df,
                         source_name=source_name,
                         cohort_label="Análisis automático · Encuesta Clara",
+                        user_crosses=crosses,
                     )
                     st.session_state.auto_inst_err = None
+                    st.session_state.auto_inst_n_cross = len(crosses)
                 except Exception as e:  # noqa: BLE001
                     st.session_state.auto_inst_err = str(e)
                     st.session_state.auto_inst_bytes = None
@@ -347,6 +365,8 @@ def render_analisis_automatico_tab(
     if st.session_state.get("auto_exec_err"):
         d1.error(st.session_state.auto_exec_err)
     elif st.session_state.get("auto_exec_bytes"):
+        n_x = st.session_state.get("auto_exec_n_cross", 0)
+        d1.caption(f"Incluye {n_x} cruce(s) seleccionados.")
         d1.download_button(
             "Descargar informe ejecutivo (Word)",
             data=st.session_state.auto_exec_bytes,
@@ -358,6 +378,8 @@ def render_analisis_automatico_tab(
     if st.session_state.get("auto_inst_err"):
         d2.error(st.session_state.auto_inst_err)
     elif st.session_state.get("auto_inst_bytes"):
+        n_x = st.session_state.get("auto_inst_n_cross", 0)
+        d2.caption(f"Incluye {n_x} cruce(s) seleccionados.")
         d2.download_button(
             "Descargar informe institucional (Word)",
             data=st.session_state.auto_inst_bytes,
@@ -369,13 +391,16 @@ def render_analisis_automatico_tab(
 
     if st.button("Generar ambos informes", key="auto_gen_both"):
         with st.spinner("Generando ejecutivo e institucional…"):
+            crosses = _crosses_for_reports()
             try:
                 st.session_state.auto_exec_bytes = build_executive_report_docx(
                     df,
                     cohort_label="Análisis automático · Encuesta Clara",
                     source_name=source_name,
+                    user_crosses=crosses,
                 )
                 st.session_state.auto_exec_err = None
+                st.session_state.auto_exec_n_cross = len(crosses)
             except Exception as e:  # noqa: BLE001
                 st.session_state.auto_exec_err = str(e)
             try:
@@ -383,8 +408,10 @@ def render_analisis_automatico_tab(
                     df,
                     source_name=source_name,
                     cohort_label="Análisis automático · Encuesta Clara",
+                    user_crosses=crosses,
                 )
                 st.session_state.auto_inst_err = None
+                st.session_state.auto_inst_n_cross = len(crosses)
             except Exception as e:  # noqa: BLE001
                 st.session_state.auto_inst_err = str(e)
         st.rerun()

@@ -700,6 +700,84 @@ def _target_priority(name: str) -> int:
     return 8
 
 
+def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    Convierte el resultado de Análisis automático (`auto_cross_computed`)
+    en la lista de cruces que consumen los informes Word.
+    """
+    out: list[dict[str, Any]] = []
+    if not computed:
+        return out
+    for item in computed:
+        row_label = display_label(str(item.get("label") or item.get("column") or ""))
+        row_column = item.get("column")
+        for cr in item.get("crosses") or []:
+            table = cr.get("table")
+            if table is None:
+                continue
+            try:
+                if getattr(table, "empty", False) or table.shape[0] < 1 or table.shape[1] < 1:
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+            col_label = display_label(str(cr.get("partner_label") or cr.get("partner") or ""))
+            out.append(
+                {
+                    "row_label": row_label,
+                    "col_label": col_label,
+                    "row_column": row_column,
+                    "table": table,
+                    "intro": (
+                        f"El cruce entre «{row_label}» y «{col_label}» fue seleccionado "
+                        "en el Análisis automático para explorar la distribución conjunta "
+                        "y posibles diferencias de patrón entre subgrupos."
+                    ),
+                    "conclusion": (
+                        f"La tabla de contingencia ({table.shape[0]} filas × {table.shape[1]} columnas) "
+                        "complementa la lectura univariada. Cuando el tamaño muestral lo permita, "
+                        "conviene contrastar con una prueba de asociación (χ²) en Encuesta Clara."
+                    ),
+                }
+            )
+    return out
+
+
+def narrative_for_crosstab(cr: dict[str, Any]) -> str:
+    """Párrafo narrativo corto a partir de una tabla de contingencia (para el ejecutivo)."""
+    table = cr.get("table")
+    row_label = cr.get("row_label", "")
+    col_label = cr.get("col_label", "")
+    if table is None:
+        return (
+            f"Se consideró el cruce «{row_label}» × «{col_label}», sin tabla disponible."
+        )
+    try:
+        # Celda modal (máximo absoluto)
+        flat = table.stack()
+        if flat.empty:
+            raise ValueError("empty")
+        idx = flat.idxmax()
+        if isinstance(idx, tuple) and len(idx) == 2:
+            r_lab, c_lab = idx
+        else:
+            r_lab, c_lab = str(idx), ""
+        val = int(flat.max())
+        total = int(flat.sum())
+        pct = (100.0 * val / total) if total else 0.0
+        return (
+            f"En el cruce «{row_label}» × «{col_label}», la celda más frecuente asocia "
+            f"«{display_label(str(r_lab))}» con «{display_label(str(c_lab))}» "
+            f"({val} casos; {pct:.1f}% del total cruzado, N={total}). "
+            "La lectura es exploratoria y debe validarse con el contexto institucional."
+        )
+    except Exception:  # noqa: BLE001
+        return (
+            f"El cruce «{row_label}» × «{col_label}» aporta la distribución conjunta "
+            f"({getattr(table, 'shape', ('?', '?'))[0]}×{getattr(table, 'shape', ('?', '?'))[1]}). "
+            "Complementa el análisis univariado del informe."
+        )
+
+
 def build_crosstab_section(df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[dict[str, Any]]:
     """Cruces automáticos demográficos × adopción/uso/acceso (estilo informe manual)."""
     dem = sorted(
