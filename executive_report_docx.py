@@ -2,7 +2,8 @@
 Informe EJECUTIVO (Word) — narrativo.
 
 Portada + índice clicable (con subpuntos de recomendaciones) + numeración de páginas.
-Si se pasan cruces del Análisis automático, se agrega un apartado con lectura y tablas.
+Los cruces del Análisis automático se integran en la narrativa del apartado temático
+correspondiente (hallazgos, beneficios, riesgos o brechas), sin un capítulo aparte.
 """
 from __future__ import annotations
 
@@ -14,16 +15,13 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import pandas as pd
 
-from executive_narrative import build_executive_sections
+from executive_narrative import build_executive_sections, weave_crosses_into_executive_sections
 from report_common import (
-    GREEN,
     MUTED,
     add_aesthetic_cover,
     add_heading,
-    add_pandas_table,
     add_para,
     add_toc_hyperlink,
-    narrative_for_crosstab,
     normalize_user_crosses,
     setup_margins,
 )
@@ -75,6 +73,7 @@ def build_executive_report_docx(
         crosses = []
 
     sections = build_executive_sections(df, audience=audience)
+    sections = weave_crosses_into_executive_sections(sections, crosses, profiles)
     section_items = list(sections.items())
 
     # Subpuntos: recomendaciones numeradas del apartado 7 (si existen)
@@ -87,8 +86,6 @@ def build_executive_report_docx(
                 subs.append((int(m.group(1)), para.strip()))
         if subs and ("recomend" in name.lower() or idx == 7):
             rec_subpoints[idx] = subs
-
-    cross_sec_idx = len(section_items) + 1 if crosses else None
 
     doc = Document()
     add_aesthetic_cover(
@@ -122,30 +119,11 @@ def build_executive_report_docx(
     for idx, (name, _paras) in enumerate(section_items, start=1):
         add_toc_hyperlink(doc, name, f"bm_ex_{idx}", bold=True, space_after=2)
         for rec_n, rec_text in rec_subpoints.get(idx, []):
-            # acortar para el índice
             short = rec_text if len(rec_text) <= 110 else rec_text[:107].rstrip() + "…"
             add_toc_hyperlink(
                 doc,
                 short,
                 _rec_bookmark(idx, rec_n),
-                size=10,
-                indent_cm=0.6,
-                space_after=1,
-            )
-
-    if cross_sec_idx is not None:
-        add_toc_hyperlink(
-            doc,
-            "Cruces seleccionados en el análisis automático",
-            f"bm_ex_{cross_sec_idx}",
-            bold=True,
-            space_after=2,
-        )
-        for i, cr in enumerate(crosses, start=1):
-            add_toc_hyperlink(
-                doc,
-                f"{i}. {cr['row_label']} × {cr['col_label']}",
-                f"bm_ex_{cross_sec_idx}_{i}",
                 size=10,
                 indent_cm=0.6,
                 space_after=1,
@@ -158,37 +136,10 @@ def build_executive_report_docx(
             if m and idx in rec_subpoints:
                 rec_n = int(m.group(1))
                 add_heading(doc, para.strip(), 2, bookmark=_rec_bookmark(idx, rec_n))
-            elif m and para[1] == ".":
+            elif m and len(para) > 1 and para[1] == ".":
                 add_para(doc, para, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=6)
             else:
                 add_para(doc, para)
-
-    if cross_sec_idx is not None and crosses:
-        add_heading(
-            doc,
-            "Cruces seleccionados en el análisis automático",
-            1,
-            bookmark=f"bm_ex_{cross_sec_idx}",
-        )
-        add_para(
-            doc,
-            "Este apartado incorpora los cruces configurados en el Análisis automático. "
-            "Cada cruce se presenta con una lectura narrativa breve y la tabla de contingencia "
-            "correspondiente, para que el documento ejecutivo refleje las mismas exploraciones "
-            "bivariadas revisadas en la aplicación.",
-        )
-        for i, cr in enumerate(crosses, start=1):
-            add_heading(
-                doc,
-                f"{i}. {cr['row_label']} × {cr['col_label']}",
-                2,
-                bookmark=f"bm_ex_{cross_sec_idx}_{i}",
-            )
-            add_para(doc, narrative_for_crosstab(cr))
-            add_para(doc, "Tabla de contingencia", size=11, bold=True, color=GREEN, space_after=2)
-            add_pandas_table(doc, cr["table"])
-            if cr.get("conclusion"):
-                add_para(doc, cr["conclusion"], size=10, color=MUTED)
 
     buf = io.BytesIO()
     doc.save(buf)

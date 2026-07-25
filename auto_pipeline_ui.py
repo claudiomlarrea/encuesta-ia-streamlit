@@ -314,9 +314,10 @@ def render_analisis_automatico_tab(
     # ------------------------------------------------------------------
     st.markdown("### 3. Informes institucionales (Word)")
     st.caption(
-        "Ambos informes incluyen los **cruces que elegiste** en el paso 1 "
-        "(después de calcular). El ejecutivo suma un apartado narrativo + tablas de esos cruces; "
-        "el institucional los incluye en el capítulo de cruces seleccionados."
+        "El **institucional** incluye los cruces elegidos bajo cada pregunta (p. ej. 1.2.1) "
+        "y en el capítulo de cruces. El **ejecutivo** integra esas lecturas en la narrativa "
+        "del apartado temático correspondiente (hallazgos, beneficios, riesgos o brechas), "
+        "sin un capítulo aparte."
     )
 
     def _crosses_for_reports() -> list[dict[str, Any]]:

@@ -743,17 +743,21 @@ def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[s
     return out
 
 
-def narrative_for_crosstab(cr: dict[str, Any]) -> str:
-    """Párrafo narrativo corto a partir de una tabla de contingencia (para el ejecutivo)."""
+def narrative_for_crosstab(cr: dict[str, Any], *, executive: bool = False) -> str:
+    """Párrafo narrativo a partir de una tabla de contingencia."""
     table = cr.get("table")
     row_label = cr.get("row_label", "")
     col_label = cr.get("col_label", "")
     if table is None:
+        if executive:
+            return (
+                f"La lectura conjunta de «{row_label}» y «{col_label}» no pudo completarse "
+                "por falta de datos suficientes en esta corrida."
+            )
         return (
             f"Se consideró el cruce «{row_label}» × «{col_label}», sin tabla disponible."
         )
     try:
-        # Celda modal (máximo absoluto)
         flat = table.stack()
         if flat.empty:
             raise ValueError("empty")
@@ -765,13 +769,27 @@ def narrative_for_crosstab(cr: dict[str, Any]) -> str:
         val = int(flat.max())
         total = int(flat.sum())
         pct = (100.0 * val / total) if total else 0.0
+        r_disp = display_label(str(r_lab))
+        c_disp = display_label(str(c_lab))
+        if executive:
+            return (
+                f"Al considerar de manera conjunta «{row_label}» y «{col_label}», el patrón más frecuente "
+                f"asocia «{r_disp}» con «{c_disp}» ({val} casos; {pct:.1f}% del total observado, N={total}). "
+                "Esta lectura bivariada aporta matices según perfil y debe interpretarse como señal "
+                "exploratoria para la conducción académica, no como prueba causal."
+            )
         return (
             f"En el cruce «{row_label}» × «{col_label}», la celda más frecuente asocia "
-            f"«{display_label(str(r_lab))}» con «{display_label(str(c_lab))}» "
+            f"«{r_disp}» con «{c_disp}» "
             f"({val} casos; {pct:.1f}% del total cruzado, N={total}). "
             "La lectura es exploratoria y debe validarse con el contexto institucional."
         )
     except Exception:  # noqa: BLE001
+        if executive:
+            return (
+                f"La lectura conjunta de «{row_label}» y «{col_label}» aporta matices de distribución "
+                "según subgrupos y complementa los hallazgos univariados del diagnóstico."
+            )
         return (
             f"El cruce «{row_label}» × «{col_label}» aporta la distribución conjunta "
             f"({getattr(table, 'shape', ('?', '?'))[0]}×{getattr(table, 'shape', ('?', '?'))[1]}). "

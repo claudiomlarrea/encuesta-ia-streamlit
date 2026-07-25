@@ -447,3 +447,62 @@ def build_executive_sections(df: pd.DataFrame, audience: str = "estudiantes") ->
         ),
     ]
     return out
+
+
+def _executive_section_for_cross(cr: dict[str, Any], profiles_by_col: dict[str, ColumnProfile]) -> str:
+    """Elige el apartado temático del ejecutivo donde integrar la lectura bivariada."""
+    chapters: list[str] = []
+    for col in (cr.get("row_column"), cr.get("col_column")):
+        p = profiles_by_col.get(col) if col else None
+        if p is not None:
+            chapters.append(classify_chapter(p))
+    chs = set(chapters)
+    blob = _norm(f"{cr.get('row_label', '')} {cr.get('col_label', '')}")
+
+    if "institucional" in chs:
+        return "5. Brechas institucionales: formación, normativa y comunicación"
+    if "actitudes" in chs:
+        if any(k in blob for k in ("riesgo", "preocup", "dependen", "crítico", "critico", "falta", "integridad")):
+            return "4. Riesgos, tensiones pedagógicas y desafíos institucionales"
+        return "3. Beneficios percibidos y valor académico de la IA"
+    # sociodemográfico × adopción/usos, o usos/adopción solos → hallazgos
+    return "2. Hallazgos principales del diagnóstico"
+
+
+def weave_crosses_into_executive_sections(
+    sections: dict[str, list[str]],
+    crosses: list[dict[str, Any]] | None,
+    profiles: list[ColumnProfile] | None = None,
+) -> dict[str, list[str]]:
+    """
+    Incorpora las lecturas bivariadas elegidas dentro de la narrativa de cada apartado
+    (sin capítulo aparte ni la palabra «cruce»).
+    """
+    if not crosses:
+        return sections
+
+    from report_common import narrative_for_crosstab
+
+    profiles_by_col = {p.name: p for p in (profiles or [])}
+    # Copiar para no mutar el dict original inesperadamente
+    out = {k: list(v) for k, v in sections.items()}
+
+    by_section: dict[str, list[dict[str, Any]]] = {}
+    for cr in crosses:
+        key = _executive_section_for_cross(cr, profiles_by_col)
+        if key not in out:
+            key = "2. Hallazgos principales del diagnóstico"
+        by_section.setdefault(key, []).append(cr)
+
+    for key, crs in by_section.items():
+        paras = out.setdefault(key, [])
+        if len(crs) == 1:
+            paras.append(narrative_for_crosstab(crs[0], executive=True))
+        else:
+            paras.append(
+                "Complementando la lectura univariada, el análisis conjunto de variables "
+                "seleccionadas aporta matices relevantes para la conducción académica:"
+            )
+            for cr in crs:
+                paras.append(narrative_for_crosstab(cr, executive=True))
+    return out
