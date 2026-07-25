@@ -98,8 +98,8 @@ def _auto_resumen(
     if n_crosses:
         paras.append(
             f"El informe incorpora {n_crosses} cruce(s) seleccionado(s) en el Análisis automático: "
-            "aparecen debajo de cada ítem involucrado y también en el capítulo "
-            "«Análisis de cruces seleccionados» del índice."
+            "aparecen como subapartados numerados debajo de la pregunta desde la cual se configuraron "
+            "(por ejemplo, 1.2.1)."
         )
     if qual:
         qbits = [f"«{display_label(q['label'])}» ({q['short']})" for q in qual[:2]]
@@ -116,13 +116,10 @@ def _auto_resumen(
 
 
 def _crosses_for_item(crosses: list[dict[str, Any]], column: str | None) -> list[dict[str, Any]]:
+    """Solo cruces configurados sobre este ítem (fila = pregunta dueña), sin duplicar en el partner."""
     if not column:
         return []
-    return [
-        cr
-        for cr in crosses
-        if cr.get("row_column") == column or cr.get("col_column") == column
-    ]
+    return [cr for cr in crosses if cr.get("row_column") == column]
 
 
 def build_institutional_report_docx(
@@ -189,7 +186,9 @@ def build_institutional_report_docx(
             index_map.append((chap_num, key, CHAPTER_TITLES[key]))
             chap_num += 1
     cross_num = None
-    if crosses:
+    # Con cruces del usuario van bajo cada pregunta (p. ej. 1.2.1); no hay capítulo aparte.
+    # Con cruces automáticos (CLI / sin plan) sí hay capítulo dedicado.
+    if crosses and not crosses_from_user:
         cross_num = chap_num
         chap_num += 1
     qual_num = None
@@ -224,25 +223,16 @@ def build_institutional_report_docx(
             )
             if crosses_from_user:
                 for j, cr in enumerate(_crosses_for_item(crosses, sec.get("column")), start=1):
-                    other = (
-                        cr["col_label"]
-                        if cr.get("row_column") == sec.get("column")
-                        else cr["row_label"]
-                    )
                     add_toc_hyperlink(
                         doc,
-                        f"{num}.{i}.{j} {other}",
+                        f"{num}.{i}.{j} {cr['col_label']}",
                         f"bm_ch_{num}_{i}_x{j}",
                         size=9,
                         indent_cm=1.1,
                         space_after=1,
                     )
 
-    cross_chapter_title = (
-        "Análisis de cruces seleccionados"
-        if crosses_from_user
-        else "Análisis de cruces entre variables"
-    )
+    cross_chapter_title = "Análisis de cruces entre variables"
     if cross_num is not None:
         add_toc_hyperlink(
             doc,
@@ -335,14 +325,9 @@ def build_institutional_report_docx(
             if crosses_from_user:
                 item_crosses = _crosses_for_item(crosses, sec.get("column"))
                 for j, cr in enumerate(item_crosses, start=1):
-                    other = (
-                        cr["col_label"]
-                        if cr.get("row_column") == sec.get("column")
-                        else cr["row_label"]
-                    )
                     add_heading(
                         doc,
-                        f"{num}.{i}.{j} {other}",
+                        f"{num}.{i}.{j} {cr['col_label']}",
                         3,
                         bookmark=f"bm_ch_{num}_{i}_x{j}",
                     )
@@ -359,19 +344,11 @@ def build_institutional_report_docx(
             1,
             bookmark=f"bm_ch_{cross_num}",
         )
-        if crosses_from_user:
-            add_para(
-                doc,
-                "Resumen de los cruces configurados en el Análisis automático. "
-                "Las mismas tablas también figuran debajo de cada pregunta involucrada "
-                "(por ejemplo, en el capítulo sociodemográfico o de adopción)."
-            )
-        else:
-            add_para(
-                doc,
-                "Se incluyen cruces automáticos entre una variable sociodemográfica y variables de "
-                "adopción/uso/institucionales, para explorar diferencias de patrón según perfil.",
-            )
+        add_para(
+            doc,
+            "Se incluyen cruces automáticos entre una variable sociodemográfica y variables de "
+            "adopción/uso/institucionales, para explorar diferencias de patrón según perfil.",
+        )
         for i, cr in enumerate(crosses, start=1):
             add_heading(
                 doc,
