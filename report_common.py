@@ -726,6 +726,7 @@ def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[s
                     "row_label": row_label,
                     "col_label": col_label,
                     "row_column": row_column,
+                    "col_column": cr.get("partner"),
                     "table": table,
                     "intro": (
                         f"El cruce entre «{row_label}» y «{col_label}» fue seleccionado "

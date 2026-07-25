@@ -69,7 +69,13 @@ def _auto_presentation(n: int, n_struct: int, n_open: int, audience: str) -> str
     )
 
 
-def _auto_resumen(freq_sections: list[dict[str, Any]], qual: list[dict[str, Any]], n: int) -> list[str]:
+def _auto_resumen(
+    freq_sections: list[dict[str, Any]],
+    qual: list[dict[str, Any]],
+    n: int,
+    *,
+    n_crosses: int = 0,
+) -> list[str]:
     paras: list[str] = []
     paras.append(
         "La evidencia relevada permite caracterizar patrones de respuesta de la población encuestada "
@@ -89,6 +95,12 @@ def _auto_resumen(freq_sections: list[dict[str, Any]], qual: list[dict[str, Any]
         bits.append(f"en «{display_label(sec['label'])}» predomina «{cat}» ({pct:.1f}%)")
     if bits:
         paras.append("Los hallazgos cuantitativos más salientes indican que " + "; ".join(bits) + ".")
+    if n_crosses:
+        paras.append(
+            f"El informe incorpora {n_crosses} cruce(s) seleccionado(s) en el Análisis automático: "
+            "aparecen debajo de cada ítem involucrado y también en el capítulo "
+            "«Análisis de cruces seleccionados» del índice."
+        )
     if qual:
         qbits = [f"«{display_label(q['label'])}» ({q['short']})" for q in qual[:2]]
         paras.append(
@@ -101,6 +113,16 @@ def _auto_resumen(freq_sections: list[dict[str, Any]], qual: list[dict[str, Any]
         "institucional posterior."
     )
     return paras
+
+
+def _crosses_for_item(crosses: list[dict[str, Any]], column: str | None) -> list[dict[str, Any]]:
+    if not column:
+        return []
+    return [
+        cr
+        for cr in crosses
+        if cr.get("row_column") == column or cr.get("col_column") == column
+    ]
 
 
 def build_institutional_report_docx(
@@ -200,6 +222,21 @@ def build_institutional_report_docx(
                 indent_cm=0.6,
                 space_after=1,
             )
+            if crosses_from_user:
+                for j, cr in enumerate(_crosses_for_item(crosses, sec.get("column")), start=1):
+                    other = (
+                        cr["col_label"]
+                        if cr.get("row_column") == sec.get("column")
+                        else cr["row_label"]
+                    )
+                    add_toc_hyperlink(
+                        doc,
+                        f"{num}.{i}.{j} Cruce × {other}",
+                        f"bm_ch_{num}_{i}_x{j}",
+                        size=9,
+                        indent_cm=1.1,
+                        space_after=1,
+                    )
 
     cross_chapter_title = (
         "Análisis de cruces seleccionados"
@@ -251,7 +288,12 @@ def build_institutional_report_docx(
         add_para(doc, f"Cohorte / instrumento: {cohort_label}.", size=10, color=MUTED)
 
     add_heading(doc, "Resumen", 1, bookmark="bm_resumen")
-    for p in _auto_resumen(freq_sections, qual_briefs, len(df)):
+    for p in _auto_resumen(
+        freq_sections,
+        qual_briefs,
+        len(df),
+        n_crosses=len(crosses) if crosses_from_user else 0,
+    ):
         add_para(doc, p)
 
     for num, key, title_ch in index_map:
@@ -260,7 +302,12 @@ def build_institutional_report_docx(
         add_para(
             doc,
             "Este apartado presenta los ítems estructurados detectados automáticamente en esta dimensión. "
-            "Cada subapartado incluye introducción, tabla de frecuencias y conclusión interpretativa.",
+            "Cada subapartado incluye introducción, tabla de frecuencias y conclusión interpretativa"
+            + (
+                "; debajo de cada ítem aparecen los cruces que configuraste en el Análisis automático."
+                if crosses_from_user
+                else "."
+            ),
             size=10,
             color=MUTED,
         )
@@ -285,6 +332,26 @@ def build_institutional_report_docx(
             add_para(doc, "Conclusión", size=11, bold=True, color=GREEN, space_after=2)
             add_para(doc, sec["conclusion"])
 
+            if crosses_from_user:
+                item_crosses = _crosses_for_item(crosses, sec.get("column"))
+                for j, cr in enumerate(item_crosses, start=1):
+                    other = (
+                        cr["col_label"]
+                        if cr.get("row_column") == sec.get("column")
+                        else cr["row_label"]
+                    )
+                    add_heading(
+                        doc,
+                        f"{num}.{i}.{j} Cruce con «{other}»",
+                        3,
+                        bookmark=f"bm_ch_{num}_{i}_x{j}",
+                    )
+                    add_para(doc, "Introducción", size=11, bold=True, color=GREEN, space_after=2)
+                    add_para(doc, cr["intro"])
+                    add_pandas_table(doc, cr["table"])
+                    add_para(doc, "Conclusión", size=11, bold=True, color=GREEN, space_after=2)
+                    add_para(doc, cr["conclusion"])
+
     if crosses and cross_num is not None:
         add_heading(
             doc,
@@ -295,9 +362,9 @@ def build_institutional_report_docx(
         if crosses_from_user:
             add_para(
                 doc,
-                "Se incluyen los cruces configurados en el Análisis automático de Encuesta Clara. "
-                "Cada tabla de contingencia reproduce el cruce elegido por pregunta; la lectura "
-                "es exploratoria y complementa las frecuencias univariadas de los capítulos previos.",
+                "Resumen de los cruces configurados en el Análisis automático. "
+                "Las mismas tablas también figuran debajo de cada pregunta involucrada "
+                "(por ejemplo, en el capítulo sociodemográfico o de adopción)."
             )
         else:
             add_para(
