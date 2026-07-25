@@ -119,10 +119,157 @@ def add_para(
     set_run(run, size=size, bold=bold, color=color or TEXT)
 
 
-def add_heading(doc: Document, text: str, level: int = 1) -> None:
+def add_heading(doc: Document, text: str, level: int = 1, *, bookmark: str | None = None):
     h = doc.add_heading(text, level=level)
     for run in h.runs:
         set_run(run, size=16 if level == 1 else (13 if level == 2 else 11), bold=True, color=MAROON if level <= 2 else GREEN)
+    if bookmark:
+        add_bookmark(h, bookmark)
+    return h
+
+
+_bookmark_seq = 0
+
+
+def _next_bookmark_id() -> int:
+    global _bookmark_seq
+    _bookmark_seq += 1
+    return _bookmark_seq
+
+
+def sanitize_bookmark_name(name: str) -> str:
+    """Nombre válido de bookmark Word (sin espacios; empieza con letra)."""
+    raw = re.sub(r"[^A-Za-z0-9_]", "_", (name or "bm").strip())
+    raw = re.sub(r"_+", "_", raw).strip("_")
+    if not raw:
+        raw = "bm"
+    if raw[0].isdigit():
+        raw = "bm_" + raw
+    return raw[:40]
+
+
+def add_bookmark(paragraph, name: str) -> str:
+    """Inserta bookmark alrededor del contenido del párrafo. Devuelve el nombre usado."""
+    bm = sanitize_bookmark_name(name)
+    bid = str(_next_bookmark_id())
+    start = OxmlElement("w:bookmarkStart")
+    start.set(qn("w:id"), bid)
+    start.set(qn("w:name"), bm)
+    end = OxmlElement("w:bookmarkEnd")
+    end.set(qn("w:id"), bid)
+    paragraph._p.insert(0, start)
+    paragraph._p.append(end)
+    return bm
+
+
+def add_toc_hyperlink(
+    doc: Document,
+    text: str,
+    bookmark: str,
+    *,
+    size: int = 11,
+    bold: bool = False,
+    indent_cm: float = 0.0,
+    space_after: float = 2,
+) -> None:
+    """Entrada de índice clicable hacia un bookmark interno."""
+    p = doc.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p.paragraph_format.space_after = Pt(space_after)
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    if indent_cm:
+        p.paragraph_format.left_indent = Cm(indent_cm)
+
+    bm = sanitize_bookmark_name(bookmark)
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), bm)
+
+    run = OxmlElement("w:r")
+    rPr = OxmlElement("w:rPr")
+    color = OxmlElement("w:color")
+    color.set(qn("w:val"), "0563C1")
+    rPr.append(color)
+    u = OxmlElement("w:u")
+    u.set(qn("w:val"), "single")
+    rPr.append(u)
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), str(int(size * 2)))
+    rPr.append(sz)
+    szCs = OxmlElement("w:szCs")
+    szCs.set(qn("w:val"), str(int(size * 2)))
+    rPr.append(szCs)
+    if bold:
+        rPr.append(OxmlElement("w:b"))
+    rFonts = OxmlElement("w:rFonts")
+    rFonts.set(qn("w:ascii"), "Calibri")
+    rFonts.set(qn("w:hAnsi"), "Calibri")
+    rPr.append(rFonts)
+    run.append(rPr)
+
+    t = OxmlElement("w:t")
+    t.set(qn("xml:space"), "preserve")
+    t.text = text
+    run.append(t)
+    hyperlink.append(run)
+    p._p.append(hyperlink)
+
+
+def add_page_numbers_bottom_right(section, *, start_at: int = 1) -> None:
+    """Numeración de página abajo a la derecha (solo esta sección; no en portada)."""
+    section.footer.is_linked_to_previous = False
+    footer = section.footer
+    p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+    # Vaciar contenido previo del párrafo
+    for child in list(p._p):
+        if child.tag != qn("w:pPr"):
+            p._p.remove(child)
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p.paragraph_format.space_before = Pt(0)
+    p.paragraph_format.space_after = Pt(0)
+
+    def _run_with(*children):
+        r = OxmlElement("w:r")
+        rPr = OxmlElement("w:rPr")
+        sz = OxmlElement("w:sz")
+        sz.set(qn("w:val"), "20")
+        rPr.append(sz)
+        color_el = OxmlElement("w:color")
+        color_el.set(qn("w:val"), "5C4F54")
+        rPr.append(color_el)
+        rFonts = OxmlElement("w:rFonts")
+        rFonts.set(qn("w:ascii"), "Calibri")
+        rFonts.set(qn("w:hAnsi"), "Calibri")
+        rPr.append(rFonts)
+        r.append(rPr)
+        for ch in children:
+            r.append(ch)
+        return r
+
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = " PAGE "
+    fld_sep = OxmlElement("w:fldChar")
+    fld_sep.set(qn("w:fldCharType"), "separate")
+    fld_text = OxmlElement("w:t")
+    fld_text.text = str(start_at)
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+
+    p._p.append(_run_with(fld_begin))
+    p._p.append(_run_with(instr))
+    p._p.append(_run_with(fld_sep))
+    p._p.append(_run_with(fld_text))
+    p._p.append(_run_with(fld_end))
+
+    sectPr = section._sectPr
+    pgNumType = sectPr.find(qn("w:pgNumType"))
+    if pgNumType is None:
+        pgNumType = OxmlElement("w:pgNumType")
+        sectPr.append(pgNumType)
+    pgNumType.set(qn("w:start"), str(start_at))
 
 
 def shade_paragraph(paragraph, hex_fill: str) -> None:
@@ -713,6 +860,14 @@ def add_aesthetic_cover(
     # Cuerpo en nueva sección con márgenes normales
     new_sec = doc.add_section()
     setup_margins(doc, section=new_sec)
+    # Portada sin número; cuerpo con numeración abajo a la derecha
+    try:
+        sec0.footer.is_linked_to_previous = False
+        for p in sec0.footer.paragraphs:
+            p.clear()
+    except Exception:  # noqa: BLE001
+        pass
+    add_page_numbers_bottom_right(new_sec, start_at=1)
 
 
 def build_institutional_final_considerations(n: int, n_struct: int, n_open: int, audience: str) -> str:

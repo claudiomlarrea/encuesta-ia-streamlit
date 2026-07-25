@@ -1,14 +1,10 @@
 """
 Informe INSTITUCIONAL extenso (Word), estilo del informe manual del Observatorio.
 
-Estructura:
-- Portada estética (bordo/verde)
-- Índice
-- Presentación y Resumen
-- Capítulos cuantitativos (ítem: Introducción → tabla → Conclusión)
-- Cruces automáticos demográficos
-- Capítulo cualitativo extendido (temático, sentimiento, discurso)
-- Consideraciones finales (~200 palabras)
+- Portada estética
+- Índice clicable con capítulos y subpuntos
+- Numeración de páginas (excepto portada)
+- Capítulos: Introducción → tabla → Conclusión
 """
 from __future__ import annotations
 
@@ -29,6 +25,7 @@ from report_common import (
     add_heading,
     add_pandas_table,
     add_para,
+    add_toc_hyperlink,
     build_crosstab_section,
     build_frequency_sections,
     build_institutional_final_considerations,
@@ -113,6 +110,10 @@ def build_institutional_report_docx(
     source_name: str = "",
     cohort_label: str = "",
 ) -> bytes:
+    import report_common as rc
+
+    rc._bookmark_seq = 0
+
     profiles = classify_columns(df)
     freq_sections = build_frequency_sections(df, profiles)
     qual_briefs = build_qualitative_extended(df, profiles)
@@ -141,42 +142,99 @@ def build_institutional_report_docx(
     )
     setup_margins(doc, section=doc.sections[-1])
 
-    # Índice
-    add_heading(doc, "ÍNDICE", 1)
-    add_para(doc, "Presentación", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=3)
-    add_para(doc, "Resumen", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=3)
-    chap_num = 1
+    # Armar mapa de capítulos / subpuntos antes del índice
     index_map: list[tuple[int, str, str]] = []
+    chap_num = 1
     for key in CHAPTER_ORDER:
         if by_chapter.get(key):
             index_map.append((chap_num, key, CHAPTER_TITLES[key]))
-            add_para(doc, f"{chap_num}. {CHAPTER_TITLES[key]}", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=3)
             chap_num += 1
+    cross_num = None
     if crosses:
-        add_para(doc, f"{chap_num}. Análisis de cruces entre variables", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=3)
         cross_num = chap_num
         chap_num += 1
-    else:
-        cross_num = None
+    qual_num = None
     if qual_briefs:
-        add_para(doc, f"{chap_num}. {CHAPTER_TITLES['cualitativo']}", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=3)
         qual_num = chap_num
-    else:
-        qual_num = None
-    add_para(doc, "Consideraciones finales", size=11, align=WD_ALIGN_PARAGRAPH.LEFT, space_after=10)
 
-    add_heading(doc, "Presentación", 1)
+    # ----- ÍNDICE clicable con subpuntos -----
+    add_heading(doc, "ÍNDICE", 1, bookmark="bm_indice")
+    add_para(
+        doc,
+        "Hacé clic en cada ítem para ir al apartado correspondiente.",
+        size=9,
+        color=MUTED,
+        align=WD_ALIGN_PARAGRAPH.LEFT,
+        space_after=6,
+    )
+
+    add_toc_hyperlink(doc, "Presentación", "bm_presentacion", bold=True, space_after=3)
+    add_toc_hyperlink(doc, "Resumen", "bm_resumen", bold=True, space_after=3)
+
+    for num, key, title_ch in index_map:
+        add_toc_hyperlink(doc, f"{num}. {title_ch}", f"bm_ch_{num}", bold=True, space_after=2)
+        for i, sec in enumerate(by_chapter[key], start=1):
+            label = display_label(sec["label"])
+            add_toc_hyperlink(
+                doc,
+                f"{num}.{i} {label}",
+                f"bm_ch_{num}_{i}",
+                size=10,
+                indent_cm=0.6,
+                space_after=1,
+            )
+
+    if cross_num is not None:
+        add_toc_hyperlink(
+            doc,
+            f"{cross_num}. Análisis de cruces entre variables",
+            f"bm_ch_{cross_num}",
+            bold=True,
+            space_after=2,
+        )
+        for i, cr in enumerate(crosses, start=1):
+            add_toc_hyperlink(
+                doc,
+                f"{cross_num}.{i} {cr['row_label']} × {cr['col_label']}",
+                f"bm_ch_{cross_num}_{i}",
+                size=10,
+                indent_cm=0.6,
+                space_after=1,
+            )
+
+    if qual_num is not None:
+        add_toc_hyperlink(
+            doc,
+            f"{qual_num}. {CHAPTER_TITLES['cualitativo']}",
+            f"bm_ch_{qual_num}",
+            bold=True,
+            space_after=2,
+        )
+        for i, b in enumerate(qual_briefs, start=1):
+            add_toc_hyperlink(
+                doc,
+                f"{qual_num}.{i} {display_label(b['label'])}",
+                f"bm_ch_{qual_num}_{i}",
+                size=10,
+                indent_cm=0.6,
+                space_after=1,
+            )
+
+    add_toc_hyperlink(doc, "Consideraciones finales", "bm_finales", bold=True, space_after=12)
+
+    # ----- Cuerpo -----
+    add_heading(doc, "Presentación", 1, bookmark="bm_presentacion")
     add_para(doc, _auto_presentation(len(df), len(freq_sections), len(qual_briefs), audience))
     if cohort_label:
         add_para(doc, f"Cohorte / instrumento: {cohort_label}.", size=10, color=MUTED)
 
-    add_heading(doc, "Resumen", 1)
+    add_heading(doc, "Resumen", 1, bookmark="bm_resumen")
     for p in _auto_resumen(freq_sections, qual_briefs, len(df)):
         add_para(doc, p)
 
     for num, key, title_ch in index_map:
         sections = by_chapter[key]
-        add_heading(doc, f"{num}. {title_ch}", 1)
+        add_heading(doc, f"{num}. {title_ch}", 1, bookmark=f"bm_ch_{num}")
         add_para(
             doc,
             "Este apartado presenta los ítems estructurados detectados automáticamente en esta dimensión. "
@@ -185,9 +243,20 @@ def build_institutional_report_docx(
             color=MUTED,
         )
         for i, sec in enumerate(sections, start=1):
-            add_heading(doc, f"{num}.{i} {display_label(sec['label'])}", 2)
+            add_heading(
+                doc,
+                f"{num}.{i} {display_label(sec['label'])}",
+                2,
+                bookmark=f"bm_ch_{num}_{i}",
+            )
             if sec.get("subtype"):
-                add_para(doc, f"Tipo detectado: {sec['subtype']} · N válidos = {sec['n']}", size=9, color=MUTED, space_after=4)
+                add_para(
+                    doc,
+                    f"Tipo detectado: {sec['subtype']} · N válidos = {sec['n']}",
+                    size=9,
+                    color=MUTED,
+                    space_after=4,
+                )
             add_para(doc, "Introducción", size=11, bold=True, color=GREEN, space_after=2)
             add_para(doc, sec["intro"])
             add_freq_table(doc, sec["table"])
@@ -195,14 +264,24 @@ def build_institutional_report_docx(
             add_para(doc, sec["conclusion"])
 
     if crosses and cross_num is not None:
-        add_heading(doc, f"{cross_num}. Análisis de cruces entre variables", 1)
+        add_heading(
+            doc,
+            f"{cross_num}. Análisis de cruces entre variables",
+            1,
+            bookmark=f"bm_ch_{cross_num}",
+        )
         add_para(
             doc,
             "Se incluyen cruces automáticos entre una variable sociodemográfica y variables de "
             "adopción/uso/institucionales, para explorar diferencias de patrón según perfil.",
         )
         for i, cr in enumerate(crosses, start=1):
-            add_heading(doc, f"{cross_num}.{i} {cr['row_label']} × {cr['col_label']}", 2)
+            add_heading(
+                doc,
+                f"{cross_num}.{i} {cr['row_label']} × {cr['col_label']}",
+                2,
+                bookmark=f"bm_ch_{cross_num}_{i}",
+            )
             add_para(doc, "Introducción", size=11, bold=True, color=GREEN, space_after=2)
             add_para(doc, cr["intro"])
             add_pandas_table(doc, cr["table"])
@@ -210,14 +289,24 @@ def build_institutional_report_docx(
             add_para(doc, cr["conclusion"])
 
     if qual_briefs and qual_num is not None:
-        add_heading(doc, f"{qual_num}. {CHAPTER_TITLES['cualitativo']}", 1)
+        add_heading(
+            doc,
+            f"{qual_num}. {CHAPTER_TITLES['cualitativo']}",
+            1,
+            bookmark=f"bm_ch_{qual_num}",
+        )
         add_para(
             doc,
             "Análisis temático, de sentimiento y del discurso sobre las respuestas abiertas. "
             "Los resultados son exploratorios y orientativos.",
         )
         for i, b in enumerate(qual_briefs, start=1):
-            add_heading(doc, f"{qual_num}.{i} {display_label(b['label'])}", 2)
+            add_heading(
+                doc,
+                f"{qual_num}.{i} {display_label(b['label'])}",
+                2,
+                bookmark=f"bm_ch_{qual_num}_{i}",
+            )
             add_para(doc, f"N = {b['n']} respuestas válidas", size=9, color=MUTED)
             add_para(doc, "Síntesis", size=11, bold=True, color=GREEN, space_after=2)
             add_para(doc, b["short"])
@@ -234,7 +323,7 @@ def build_institutional_report_docx(
             for para in b["discourse_paras"][:36]:
                 add_para(doc, para, size=10, space_after=5)
 
-    add_heading(doc, "Consideraciones finales", 1)
+    add_heading(doc, "Consideraciones finales", 1, bookmark="bm_finales")
     add_para(
         doc,
         build_institutional_final_considerations(
