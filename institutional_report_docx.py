@@ -231,7 +231,7 @@ def build_institutional_report_docx(
                     )
                     add_toc_hyperlink(
                         doc,
-                        f"{num}.{i}.{j} Cruce × {other}",
+                        f"{num}.{i}.{j} {other}",
                         f"bm_ch_{num}_{i}_x{j}",
                         size=9,
                         indent_cm=1.1,
@@ -342,7 +342,7 @@ def build_institutional_report_docx(
                     )
                     add_heading(
                         doc,
-                        f"{num}.{i}.{j} Cruce con «{other}»",
+                        f"{num}.{i}.{j} {other}",
                         3,
                         bookmark=f"bm_ch_{num}_{i}_x{j}",
                     )
