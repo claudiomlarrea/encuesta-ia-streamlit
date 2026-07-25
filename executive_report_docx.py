@@ -118,16 +118,7 @@ def build_executive_report_docx(
     )
     for idx, (name, _paras) in enumerate(section_items, start=1):
         add_toc_hyperlink(doc, name, f"bm_ex_{idx}", bold=True, space_after=2)
-        for rec_n, rec_text in rec_subpoints.get(idx, []):
-            short = rec_text if len(rec_text) <= 110 else rec_text[:107].rstrip() + "…"
-            add_toc_hyperlink(
-                doc,
-                short,
-                _rec_bookmark(idx, rec_n),
-                size=10,
-                indent_cm=0.6,
-                space_after=1,
-            )
+        # Los subpuntos (p. ej. recomendaciones 1–7) quedan en el cuerpo, no en el índice.
 
     for idx, (name, paras) in enumerate(section_items, start=1):
         add_heading(doc, name, 1, bookmark=f"bm_ex_{idx}")
