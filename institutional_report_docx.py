@@ -97,9 +97,9 @@ def _auto_resumen(
         paras.append("Los hallazgos cuantitativos más salientes indican que " + "; ".join(bits) + ".")
     if n_crosses:
         paras.append(
-            f"El informe incorpora {n_crosses} cruce(s) seleccionado(s) en el Análisis automático: "
-            "aparecen como subapartados numerados debajo de la pregunta desde la cual se configuraron "
-            "(por ejemplo, 1.2.1)."
+            f"El informe incorpora {n_crosses} lectura(s) desagregada(s) adicional(es), "
+            "como subapartados numerados debajo de la pregunta desde la cual se configuraron "
+            "(por ejemplo, 1.2.1), con introducción, tabla y conclusión analítica."
         )
     if qual:
         qbits = [f"«{display_label(q['label'])}» ({q['short']})" for q in qual[:2]]

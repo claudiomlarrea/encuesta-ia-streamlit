@@ -700,6 +700,121 @@ def _target_priority(name: str) -> int:
     return 8
 
 
+def interpret_crosstab_analysis(
+    row_label: str,
+    col_label: str,
+    table: pd.DataFrame,
+) -> tuple[str, str]:
+    """
+    Introducción y conclusión analíticas para un apartado bivariado.
+    Sin mencionar «cruce», χ² ni Encuesta Clara: se lee como un punto más del análisis.
+    """
+    row_lab = display_label(row_label)
+    col_lab = display_label(col_label)
+    try:
+        ct = table.apply(pd.to_numeric, errors="coerce").fillna(0)
+    except Exception:  # noqa: BLE001
+        ct = table.copy()
+    try:
+        total = int(ct.to_numpy().sum())
+    except Exception:  # noqa: BLE001
+        total = 0
+
+    intro = (
+        f"Este apartado amplía la lectura de «{row_lab}» considerando de manera conjunta "
+        f"«{col_lab}», a fin de observar si el patrón de respuesta varía entre subgrupos "
+        f"(N={total})."
+    )
+
+    row_modals: list[tuple[str, str, int, float, int]] = []
+    try:
+        for idx, row in ct.iterrows():
+            row_n = int(row.sum())
+            if row_n <= 0:
+                continue
+            col_max = str(row.idxmax())
+            val = int(row.max())
+            pct = 100.0 * val / row_n
+            row_modals.append((str(idx), col_max, val, pct, row_n))
+    except Exception:  # noqa: BLE001
+        row_modals = []
+
+    if not row_modals or total <= 0:
+        concl = (
+            f"La distribución conjunta de «{row_lab}» y «{col_lab}» no aporta un patrón "
+            "interpretable con el volumen de datos disponible en esta corrida. "
+            "Conviene contrastar con el análisis univariado de cada ítem."
+        )
+        return intro, concl
+
+    # Celda modal global
+    try:
+        flat = ct.stack()
+        g_idx = flat.idxmax()
+        if isinstance(g_idx, tuple) and len(g_idx) == 2:
+            g_r, g_c = str(g_idx[0]), str(g_idx[1])
+        else:
+            g_r, g_c = str(g_idx), ""
+        g_val = int(flat.max())
+        g_pct = 100.0 * g_val / total
+    except Exception:  # noqa: BLE001
+        g_r, g_c, g_val, g_pct = row_modals[0][0], row_modals[0][1], row_modals[0][2], row_modals[0][3]
+
+    examples: list[str] = []
+    for r_name, c_name, _val, pct, _rn in row_modals[:4]:
+        examples.append(
+            f"en «{display_label(r_name)}» predomina «{display_label(c_name)}» "
+            f"({pct:.0f}% de ese subgrupo)"
+        )
+
+    concl = (
+        f"Al desagregar «{col_lab}» según «{row_lab}», {'; '.join(examples)}. "
+        f"En el conjunto, la combinación más frecuente asocia «{display_label(g_r)}» con "
+        f"«{display_label(g_c)}» ({g_val} casos; {g_pct:.1f}% del total, N={total}). "
+    )
+
+    # Desplazamiento del modal entre el primer y un subgrupo intermedio/avanzado
+    if len(row_modals) >= 3:
+        first = row_modals[0]
+        later = row_modals[min(len(row_modals) - 1, max(2, len(row_modals) // 2 + 1))]
+        # Preferir un subgrupo “intermedio/avanzado” distinto del primero
+        for cand in row_modals[2:]:
+            if cand[1] != first[1]:
+                later = cand
+                break
+        if first[1] != later[1]:
+            concl += (
+                f"Se advierte un desplazamiento del patrón: mientras en «{display_label(first[0])}» "
+                f"destaca «{display_label(first[1])}», en «{display_label(later[0])}» gana peso "
+                f"«{display_label(later[1])}». "
+            )
+
+    # Señal de categoría residual (p. ej. Nunca) si es muy baja
+    try:
+        col_sums = ct.sum(axis=0)
+        never_cols = [
+            c
+            for c in col_sums.index
+            if any(k in str(c).lower() for k in ("nunca", "ningun", "no "))
+        ]
+        if never_cols:
+            never_n = int(sum(int(col_sums[c]) for c in never_cols))
+            never_pct = 100.0 * never_n / total if total else 0.0
+            if never_pct < 5:
+                concl += (
+                    f"La opción de no uso o uso nulo concentra apenas el {never_pct:.1f}% del total, "
+                    "lo que refuerza la lectura de una práctica ya extendida entre subgrupos. "
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+    concl += (
+        "Estos matices por subgrupo enriquecen el diagnóstico y orientan decisiones "
+        "diferenciadas de formación, comunicación y acompañamiento pedagógico."
+    )
+    return intro, concl
+
+
 def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """
     Convierte el resultado de Análisis automático (`auto_cross_computed`)
@@ -721,6 +836,7 @@ def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[s
             except Exception:  # noqa: BLE001
                 continue
             col_label = display_label(str(cr.get("partner_label") or cr.get("partner") or ""))
+            intro, conclusion = interpret_crosstab_analysis(row_label, col_label, table)
             out.append(
                 {
                     "row_label": row_label,
@@ -728,73 +844,32 @@ def normalize_user_crosses(computed: list[dict[str, Any]] | None) -> list[dict[s
                     "row_column": row_column,
                     "col_column": cr.get("partner"),
                     "table": table,
-                    "intro": (
-                        f"El cruce entre «{row_label}» y «{col_label}» fue seleccionado "
-                        "en el Análisis automático para explorar la distribución conjunta "
-                        "y posibles diferencias de patrón entre subgrupos."
-                    ),
-                    "conclusion": (
-                        f"La tabla de contingencia ({table.shape[0]} filas × {table.shape[1]} columnas) "
-                        "complementa la lectura univariada. Cuando el tamaño muestral lo permita, "
-                        "conviene contrastar con una prueba de asociación (χ²) en Encuesta Clara."
-                    ),
+                    "intro": intro,
+                    "conclusion": conclusion,
                 }
             )
     return out
 
 
 def narrative_for_crosstab(cr: dict[str, Any], *, executive: bool = False) -> str:
-    """Párrafo narrativo a partir de una tabla de contingencia."""
+    """Párrafo narrativo analítico (sin meta-texto de «cruce» ni χ²)."""
+    if cr.get("conclusion") and executive:
+        # En ejecutivo: un solo párrafo de hallazgo (la conclusión analítica)
+        return str(cr["conclusion"])
+    if cr.get("conclusion") and cr.get("intro") and not executive:
+        return f"{cr['intro']} {cr['conclusion']}"
+
     table = cr.get("table")
     row_label = cr.get("row_label", "")
     col_label = cr.get("col_label", "")
     if table is None:
-        if executive:
-            return (
-                f"La lectura conjunta de «{row_label}» y «{col_label}» no pudo completarse "
-                "por falta de datos suficientes en esta corrida."
-            )
         return (
-            f"Se consideró el cruce «{row_label}» × «{col_label}», sin tabla disponible."
+            f"La lectura conjunta de «{row_label}» y «{col_label}» no pudo completarse "
+            "por falta de datos suficientes en esta corrida."
         )
-    try:
-        flat = table.stack()
-        if flat.empty:
-            raise ValueError("empty")
-        idx = flat.idxmax()
-        if isinstance(idx, tuple) and len(idx) == 2:
-            r_lab, c_lab = idx
-        else:
-            r_lab, c_lab = str(idx), ""
-        val = int(flat.max())
-        total = int(flat.sum())
-        pct = (100.0 * val / total) if total else 0.0
-        r_disp = display_label(str(r_lab))
-        c_disp = display_label(str(c_lab))
-        if executive:
-            return (
-                f"Al considerar de manera conjunta «{row_label}» y «{col_label}», el patrón más frecuente "
-                f"asocia «{r_disp}» con «{c_disp}» ({val} casos; {pct:.1f}% del total observado, N={total}). "
-                "Esta lectura bivariada aporta matices según perfil y debe interpretarse como señal "
-                "exploratoria para la conducción académica, no como prueba causal."
-            )
-        return (
-            f"En el cruce «{row_label}» × «{col_label}», la celda más frecuente asocia "
-            f"«{r_disp}» con «{c_disp}» "
-            f"({val} casos; {pct:.1f}% del total cruzado, N={total}). "
-            "La lectura es exploratoria y debe validarse con el contexto institucional."
-        )
-    except Exception:  # noqa: BLE001
-        if executive:
-            return (
-                f"La lectura conjunta de «{row_label}» y «{col_label}» aporta matices de distribución "
-                "según subgrupos y complementa los hallazgos univariados del diagnóstico."
-            )
-        return (
-            f"El cruce «{row_label}» × «{col_label}» aporta la distribución conjunta "
-            f"({getattr(table, 'shape', ('?', '?'))[0]}×{getattr(table, 'shape', ('?', '?'))[1]}). "
-            "Complementa el análisis univariado del informe."
-        )
+    intro, conclusion = interpret_crosstab_analysis(row_label, col_label, table)
+    return conclusion if executive else f"{intro} {conclusion}"
+
 
 
 def build_crosstab_section(df: pd.DataFrame, profiles: list[ColumnProfile]) -> list[dict[str, Any]]:
@@ -870,22 +945,16 @@ def build_crosstab_section(df: pd.DataFrame, profiles: list[ColumnProfile]) -> l
                 ct = ct.iloc[:12]
             if ct.shape[1] > 8:
                 ct = ct.iloc[:, :8]
+            intro, conclusion = interpret_crosstab_analysis(
+                display_label(row_p.name), display_label(col_p.name), ct
+            )
             out.append(
                 {
                     "row_label": display_label(row_p.name),
                     "col_label": display_label(col_p.name),
                     "table": ct,
-                    "intro": (
-                        f"El análisis de la relación entre «{display_label(row_p.name)}» y "
-                        f"«{display_label(col_p.name)}» permite explorar posibles diferencias de "
-                        "patrón según el perfil de la población encuestada."
-                    ),
-                    "conclusion": (
-                        f"La tabla de contingencia muestra la distribución conjunta "
-                        f"(filas={ct.shape[0]}, columnas={ct.shape[1]}). "
-                        "La lectura complementa el análisis univariado; cuando corresponda, "
-                        "conviene contrastar con pruebas de asociación (χ²) en Encuesta Clara."
-                    ),
+                    "intro": intro,
+                    "conclusion": conclusion,
                 }
             )
         except Exception:  # noqa: BLE001

@@ -450,22 +450,27 @@ def build_executive_sections(df: pd.DataFrame, audience: str = "estudiantes") ->
 
 
 def _executive_section_for_cross(cr: dict[str, Any], profiles_by_col: dict[str, ColumnProfile]) -> str:
-    """Elige el apartado temático del ejecutivo donde integrar la lectura bivariada."""
-    chapters: list[str] = []
-    for col in (cr.get("row_column"), cr.get("col_column")):
-        p = profiles_by_col.get(col) if col else None
-        if p is not None:
-            chapters.append(classify_chapter(p))
-    chs = set(chapters)
+    """Apartado temático del ejecutivo según la pregunta dueña del análisis (fila)."""
+    owner = cr.get("row_column")
+    p = profiles_by_col.get(owner) if owner else None
+    ch = classify_chapter(p) if p is not None else None
+    if ch is None:
+        for col in (cr.get("col_column"),):
+            p2 = profiles_by_col.get(col) if col else None
+            if p2 is not None:
+                ch = classify_chapter(p2)
+                break
     blob = _norm(f"{cr.get('row_label', '')} {cr.get('col_label', '')}")
 
-    if "institucional" in chs:
+    if ch == "institucional":
         return "5. Brechas institucionales: formación, normativa y comunicación"
-    if "actitudes" in chs:
+    if ch == "actitudes":
         if any(k in blob for k in ("riesgo", "preocup", "dependen", "crítico", "critico", "falta", "integridad")):
             return "4. Riesgos, tensiones pedagógicas y desafíos institucionales"
         return "3. Beneficios percibidos y valor académico de la IA"
-    # sociodemográfico × adopción/usos, o usos/adopción solos → hallazgos
+    if ch == "usos":
+        return "3. Beneficios percibidos y valor académico de la IA"
+    # sociodemográfico, adopción u otros → hallazgos
     return "2. Hallazgos principales del diagnóstico"
 
 
@@ -496,13 +501,11 @@ def weave_crosses_into_executive_sections(
 
     for key, crs in by_section.items():
         paras = out.setdefault(key, [])
-        if len(crs) == 1:
-            paras.append(narrative_for_crosstab(crs[0], executive=True))
-        else:
-            paras.append(
-                "Complementando la lectura univariada, el análisis conjunto de variables "
-                "seleccionadas aporta matices relevantes para la conducción académica:"
-            )
-            for cr in crs:
-                paras.append(narrative_for_crosstab(cr, executive=True))
+        for cr in crs:
+            # Mismo hallazgo analítico que en el institucional (conclusión), intercalado
+            # en el apartado temático correspondiente a la pregunta / dimensión.
+            text = (cr.get("conclusion") or "").strip()
+            if not text:
+                text = narrative_for_crosstab(cr, executive=True)
+            paras.append(text)
     return out
